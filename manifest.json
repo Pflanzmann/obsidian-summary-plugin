@@ -1,0 +1,10 @@
+{
+  "id": "wiki-summary-normalised",
+  "name": "Wiki Summary Normalised",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Generates a grouped summary note from DM notes + DnDWiki entries (Bash-script equivalent).",
+  "author": "You",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
