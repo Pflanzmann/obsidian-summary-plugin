@@ -1,12 +1,18 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, normalizePath } from "obsidian";
-import * as path from "path";
-import { WikiSummarySettingTab } from "./settings";
+import {
+	App,
+	Notice,
+	Plugin,
+	PluginSettingTab,
+	Setting,
+	TFile,
+	normalizePath,
+} from "obsidian";
 
 type SourceLabel = "DM NOTE" | "WIKI ENTRY";
 
 interface Candidate {
-	sortKeyPath: string;       // used for sorting + grouping
-	originalPath: string;      // actual file path to read
+	sortKeyPath: string; // used for sorting + grouping
+	originalPath: string; // actual file path to read
 	sourceLabel: SourceLabel;
 }
 
@@ -18,6 +24,10 @@ interface WikiSummarySettings {
 
 	dmNotesLabel: SourceLabel;
 	wikiLabel: SourceLabel;
+
+	// Exclude specific files:
+	excludedFilePaths: string[]; // exact paths relative to vault root
+	excludedGlobs: string[]; // glob patterns (supports **, *, ?)
 }
 
 const DEFAULT_SETTINGS: WikiSummarySettings = {
@@ -28,6 +38,9 @@ const DEFAULT_SETTINGS: WikiSummarySettings = {
 
 	dmNotesLabel: "DM NOTE",
 	wikiLabel: "WIKI ENTRY",
+
+	excludedFilePaths: [],
+	excludedGlobs: [],
 };
 
 export default class WikiSummaryNormalisedPlugin extends Plugin {
@@ -61,7 +74,6 @@ export default class WikiSummaryNormalisedPlugin extends Plugin {
 
 	private isExcludedAtRoot(filePath: string): boolean {
 		const first = filePath.split("/")[0] ?? "";
-		if (first.length === 0) return false;
 		return this.settings.globalExcludedDirNames.includes(first);
 	}
 
@@ -75,35 +87,100 @@ export default class WikiSummaryNormalisedPlugin extends Plugin {
 
 		const rest = filePath.slice(prefix.length);
 		const firstInside = rest.split("/")[0] ?? "";
-		if (firstInside.length === 0) return false;
-
 		return this.settings.globalExcludedDirNames.includes(firstInside);
 	}
 
+	// iOS-safe dirname implementation (no Node `path`)
 	private posixDirname(p: string): string {
-		// Ensure consistent "/" behavior inside Obsidian
-		return path.posix.dirname(p);
+		const s = normalizePath(p);
+		const idx = s.lastIndexOf("/");
+		if (idx === -1) return ".";        // no slash
+		if (idx === 0) return "/";         // root-ish
+		return s.slice(0, idx);
 	}
 
 	private normalizeWikiSortKey(originalWikiPath: string): string {
-		// Equivalent to: normalized="./${f#./$dndwiki_dir_name/}"
-		// In Obsidian, file paths don't start with "./", so:
 		const prefix = this.settings.dndwikiDirName.replace(/\/+$/, "") + "/";
-		return originalWikiPath.startsWith(prefix) ? originalWikiPath.slice(prefix.length) : originalWikiPath;
+		return originalWikiPath.startsWith(prefix)
+			? originalWikiPath.slice(prefix.length)
+			: originalWikiPath;
 	}
+
+	// ---- Excludes: exact paths + globs ----
+
+	private normalizeExcludePath(p: string): string {
+		const stripped = p.trim().replace(/^\.\//, "");
+		return normalizePath(stripped);
+	}
+
+	private globToRegExp(glob: string): RegExp {
+		const esc = (s: string) => s.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+
+		const g = glob.trim();
+		let re = "^";
+		let i = 0;
+
+		while (i < g.length) {
+			const c = g.charAt(i);
+			const next = g.charAt(i + 1);
+
+			if (c === "*") {
+				if (next === "*") {
+					i += 2;
+					if (g.charAt(i) === "/") i += 1;
+					re += "(?:.*\\/)?";
+				} else {
+					i += 1;
+					re += "[^/]*";
+				}
+			} else if (c === "?") {
+				i += 1;
+				re += "[^/]";
+			} else {
+				re += esc(c);
+				i += 1;
+			}
+		}
+
+		re += "$";
+		return new RegExp(re);
+	}
+
+	private matchesAnyGlob(filePath: string, globs: string[]): boolean {
+		for (const raw of globs) {
+			const g = raw.trim();
+			if (!g) continue;
+			const rx = this.globToRegExp(g);
+			if (rx.test(filePath)) return true;
+		}
+		return false;
+	}
+
+	private isExcludedFilePath(filePath: string): boolean {
+		const norm = this.normalizeExcludePath(filePath);
+
+		for (const p of this.settings.excludedFilePaths) {
+			if (this.normalizeExcludePath(p) === norm) return true;
+		}
+
+		if (this.matchesAnyGlob(norm, this.settings.excludedGlobs)) return true;
+
+		return false;
+	}
+
+	// ---- Core ----
 
 	async generateSummary(): Promise<void> {
 		const { vault } = this.app;
 
 		const mdFiles = vault.getMarkdownFiles();
-
 		const candidates: Candidate[] = [];
 
-		// PASS 1: Collect DM Notes
-		// Script: find . (prune excluded root + prune DnDWiki) -name *.md
+		// DM Notes
 		for (const f of mdFiles) {
-			const p = f.path;
+			const p = normalizePath(f.path);
 
+			if (this.isExcludedFilePath(p)) continue;
 			if (this.isExcludedAtRoot(p)) continue;
 			if (this.isUnderDir(p, this.settings.dndwikiDirName)) continue;
 
@@ -114,11 +191,11 @@ export default class WikiSummaryNormalisedPlugin extends Plugin {
 			});
 		}
 
-		// PASS 1b: Collect Wiki Entries
-		// Script: find ./DnDWiki (prune excluded dirs inside DnDWiki) -name *.md
+		// Wiki Entries
 		for (const f of mdFiles) {
-			const p = f.path;
+			const p = normalizePath(f.path);
 
+			if (this.isExcludedFilePath(p)) continue;
 			if (!this.isUnderDir(p, this.settings.dndwikiDirName)) continue;
 			if (this.isExcludedInsideDndWiki(p)) continue;
 
@@ -134,10 +211,10 @@ export default class WikiSummaryNormalisedPlugin extends Plugin {
 			return;
 		}
 
-		// PASS 2: Sort by sortKeyPath (LC_ALL=C sort equivalent)
-		candidates.sort((a, b) => (a.sortKeyPath < b.sortKeyPath ? -1 : a.sortKeyPath > b.sortKeyPath ? 1 : 0));
+		candidates.sort((a, b) =>
+			a.sortKeyPath < b.sortKeyPath ? -1 : a.sortKeyPath > b.sortKeyPath ? 1 : 0
+		);
 
-		// PASS 3: Build output
 		let out = "";
 		let currentDir = "";
 
@@ -173,12 +250,10 @@ export default class WikiSummaryNormalisedPlugin extends Plugin {
 
 		const existing = vault.getAbstractFileByPath(targetPath);
 		if (existing instanceof TFile) {
-			// Official way to overwrite contents
 			await vault.modify(existing, content);
 			return;
 		}
 
-		// Ensure folder exists if user set a path like "Reports/summary.txt"
 		const parts = targetPath.split("/");
 		if (parts.length > 1) {
 			const folder = parts.slice(0, -1).join("/");
@@ -191,4 +266,99 @@ export default class WikiSummaryNormalisedPlugin extends Plugin {
 	}
 }
 
+class WikiSummarySettingTab extends PluginSettingTab {
+	plugin: WikiSummaryNormalisedPlugin;
 
+	constructor(app: App, plugin: WikiSummaryNormalisedPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		containerEl.createEl("h2", { text: "Wiki Summary Normalised — Settings" });
+
+		new Setting(containerEl)
+			.setName("Output file path")
+			.setDesc("Where the summary will be written (relative to vault root).")
+			.addText((text) =>
+				text
+					.setPlaceholder("Wiki Zusammenfassung normalised.txt")
+					.setValue(this.plugin.settings.outputFilePath)
+					.onChange(async (value) => {
+						this.plugin.settings.outputFilePath =
+							value.trim() || DEFAULT_SETTINGS.outputFilePath;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("DnDWiki folder name")
+			.setDesc("Folder that contains wiki entries.")
+			.addText((text) =>
+				text
+					.setPlaceholder("DnDWiki")
+					.setValue(this.plugin.settings.dndwikiDirName)
+					.onChange(async (value) => {
+						this.plugin.settings.dndwikiDirName =
+							value.trim() || DEFAULT_SETTINGS.dndwikiDirName;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Excluded root folders")
+			.setDesc("Comma-separated folder names to skip at vault root (and inside DnDWiki).")
+			.addTextArea((area) =>
+				area
+					.setPlaceholder("02_Meta,00_Übersichten,99_Res,00_WikiDatein")
+					.setValue(this.plugin.settings.globalExcludedDirNames.join(","))
+					.onChange(async (value) => {
+						const dirs = value
+							.split(",")
+							.map((s) => s.trim())
+							.filter(Boolean);
+						this.plugin.settings.globalExcludedDirNames = dirs.length
+							? dirs
+							: DEFAULT_SETTINGS.globalExcludedDirNames;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Excluded file paths")
+			.setDesc("Comma-separated exact paths to exclude. Example: Campaign/secret.md")
+			.addTextArea((area) =>
+				area
+					.setPlaceholder("Campaign/secret.md, DnDWiki/Private/lore.md")
+					.setValue(this.plugin.settings.excludedFilePaths.join(", "))
+					.onChange(async (value) => {
+						this.plugin.settings.excludedFilePaths = value
+							.split(",")
+							.map((s) => s.trim())
+							.filter(Boolean);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Excluded globs")
+			.setDesc(
+				"One pattern per line. Supports **, *, ?. Examples:\n**/*Session*.md\n**/WIP/**\nDnDWiki/**/Private*.md"
+			)
+			.addTextArea((area) =>
+				area
+					.setPlaceholder("**/*Session*.md\n**/WIP/**\nDnDWiki/**/Private*.md")
+					.setValue(this.plugin.settings.excludedGlobs.join("\n"))
+					.onChange(async (value) => {
+						this.plugin.settings.excludedGlobs = value
+							.split("\n")
+							.map((s) => s.trim())
+							.filter(Boolean);
+						await this.plugin.saveSettings();
+					})
+			);
+	}
+}
