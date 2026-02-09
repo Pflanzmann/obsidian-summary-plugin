@@ -1,0 +1,567 @@
+import { App, TFile, normalizePath, Notice } from "obsidian";
+import { Candidate, WikiSummarySettings } from "./types";
+import {
+	isExcludedFilePath,
+	isExcludedAtRoot,
+	isUnderDir,
+	isExcludedInsideDndWiki,
+	normalizeWikiSortKey,
+	posixDirname
+} from "./utils";
+
+// --- 1. Standard Generation (All Vault) ---
+
+export async function generateSummary(app: App, settings: WikiSummarySettings): Promise<void> {
+	const { vault } = app;
+	const allFiles = vault.getMarkdownFiles();
+
+	const candidates = createCandidates(allFiles, settings);
+
+	// Use the fixed path from settings
+	await processAndWrite(app, candidates, settings, settings.outputFilePath);
+}
+
+// --- 2. Link-Based Generation (Passed Folder) ---
+
+export async function generateSummaryFromLinks(
+	app: App,
+	settings: WikiSummarySettings,
+	folderPath: string
+): Promise<void> {
+	const { vault, metadataCache } = app;
+	const scanDir = normalizePath(folderPath);
+
+	// 1. Identify Source Files (Files inside the selected folder)
+	const sourceFiles = vault.getMarkdownFiles().filter(f =>
+		f.path === scanDir || f.path.startsWith(scanDir + "/")
+	);
+
+	if (sourceFiles.length === 0) {
+		new Notice(`No markdown files found in folder: ${scanDir}`);
+		return;
+	}
+
+	// 2. Recursive Link Discovery
+	const MAX_DEPTH = 2;
+	const processedPaths = new Set<string>();
+	const foundFilesMap = new Map<string, TFile>();
+
+	// Initialize queue with sourceFiles
+	// We add sourceFiles to processedPaths immediately so we don't 'discover' them via links
+	let queue: { file: TFile; depth: number }[] = sourceFiles.map(f => ({ file: f, depth: 0 }));
+	sourceFiles.forEach(f => processedPaths.add(f.path));
+
+	while (queue.length > 0) {
+		const { file: currentFile, depth } = queue.shift()!;
+
+		if (depth >= MAX_DEPTH) continue;
+
+		const cache = metadataCache.getFileCache(currentFile);
+		if (!cache) continue;
+
+		const links = [...(cache.links || []), ...(cache.embeds || [])];
+
+		for (const link of links) {
+			const targetFile = metadataCache.getFirstLinkpathDest(link.link, currentFile.path);
+
+			if (targetFile instanceof TFile && targetFile.extension === "md") {
+				if (!processedPaths.has(targetFile.path)) {
+					processedPaths.add(targetFile.path);
+					foundFilesMap.set(targetFile.path, targetFile);
+					queue.push({ file: targetFile, depth: depth + 1 });
+				}
+			}
+		}
+	}
+
+	const targetFiles = Array.from(foundFilesMap.values());
+
+	// 3. Determine Dynamic Output Path
+	const folderName = scanDir.split('/').pop() || "Folder";
+	const settingsDir = posixDirname(settings.outputFilePath);
+	const baseDir = settingsDir === "." ? "" : settingsDir + "/";
+	const dynamicOutputPath = `${baseDir}Wiki Summary - ${folderName}.txt`;
+
+	// 4. Process Candidates
+
+	// A. Create candidates from the source folder files and mark them as Root
+	const sourceCandidates = createCandidates(sourceFiles, settings);
+	sourceCandidates.forEach(c => c.isRoot = true);
+
+	// B. Create candidates from the discovered links
+	const linkCandidates = createCandidates(targetFiles, settings);
+
+	// C. Combine them
+	const allCandidates = [...sourceCandidates, ...linkCandidates];
+
+	if (allCandidates.length === 0) {
+		new Notice(`No relevant files found for ${folderName}`);
+		return;
+	}
+
+	await processAndWrite(app, allCandidates, settings, dynamicOutputPath);
+}
+
+// --- Shared Logic ---
+
+function createCandidates(files: TFile[], settings: WikiSummarySettings): Candidate[] {
+	const candidates: Candidate[] = [];
+
+	for (const f of files) {
+		const p = normalizePath(f.path);
+
+		if (isExcludedFilePath(p, settings)) continue;
+		if (isExcludedAtRoot(p, settings)) continue;
+
+		if (isUnderDir(p, settings.dndwikiDirName)) {
+			if (isExcludedInsideDndWiki(p, settings)) continue;
+
+			candidates.push({
+				sortKeyPath: normalizeWikiSortKey(p, settings),
+				originalPath: p,
+				sourceLabel: settings.wikiLabel,
+			});
+		} else {
+			candidates.push({
+				sortKeyPath: p,
+				originalPath: p,
+				sourceLabel: settings.dmNotesLabel,
+			});
+		}
+	}
+	return candidates;
+}
+
+/**
+ * Generates the text content and writes it to the specific output path.
+ */
+async function processAndWrite(
+	app: App,
+	candidates: Candidate[],
+	settings: WikiSummarySettings,
+	destinationPath: string
+): Promise<void> {
+	if (candidates.length === 0) {
+		await writeOutput(app, destinationPath, "(Keine relevanten Dateien gefunden)\n");
+		return;
+	}
+
+	// Sort: Root files first, then alphabetical by path
+	candidates.sort((a, b) => {
+		// 1. Priority: isRoot? (True comes before False)
+		const aRoot = a.isRoot ? 1 : 0;
+		const bRoot = b.isRoot ? 1 : 0;
+		if (aRoot !== bRoot) {
+			return bRoot - aRoot;
+		}
+
+		// 2. Priority: Alphabetical path
+		return a.sortKeyPath.localeCompare(b.sortKeyPath);
+	});
+
+	let out = "";
+	let currentDir = "";
+	let isFirstRootSection = true;
+
+	for (const c of candidates) {
+		const dir = posixDirname(c.sortKeyPath);
+
+		// Logic to handle directory headers
+		// If it's a root file, we might want a specific header or just the directory
+		if (dir !== currentDir) {
+			if (currentDir !== "") out += "\n";
+
+			// Optional: Visual distinction if moving from Root files to Linked files
+			// Since we sort Root first, once we hit a non-root file that changes dir, we know we are in links.
+			out += `--- DIRECTORY: ${dir} ---\n\n`;
+			currentDir = dir;
+		}
+
+		out += `### ${c.sourceLabel}: ${c.originalPath} ###\n\n`;
+
+		const file = app.vault.getAbstractFileByPath(c.originalPath);
+		if (file instanceof TFile) {
+			const content = await app.vault.cachedRead(file);
+			out += content;
+			if (!out.endsWith("\n")) out += "\n";
+		} else {
+			out += `FEHLER: Datei '${c.originalPath}' nicht gefunden.\n`;
+		}
+
+		out += "\n=============================================\n\n";
+	}
+
+	await writeOutput(app, destinationPath, out);
+	new Notice(`Summary written to: ${destinationPath}`);
+}
+
+async function writeOutput(app: App, filePath: string, content: string): Promise<void> {
+	const { vault } = app;
+	const targetPath = normalizePath(filePath);
+
+	const existing = vault.getAbstractFileByPath(targetPath);
+	if (existing instanceof TFile) {
+		await vault.modify(existing, content);
+		return;
+	}
+
+	const parts = targetPath.split("/");
+	if (parts.length > 1) {
+		const folder = parts.slice(0, -1).join("/");
+		if (!vault.getAbstractFileByPath(folder)) {
+			await vault.createFolder(folder);
+		}
+	}
+
+	await vault.create(targetPath, content);
+}
+
+import { App, Notice, Plugin, FuzzySuggestModal, TFolder } from "obsidian";
+import { WikiSummarySettings } from "./types";
+import { DEFAULT_SETTINGS, WikiSummarySettingTab } from "./settings";
+import { generateSummary, generateSummaryFromLinks } from "./generator";
+
+export default class WikiSummaryNormalisedPlugin extends Plugin {
+	settings: WikiSummarySettings;
+
+	async onload() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+
+		this.addSettingTab(new WikiSummarySettingTab(this.app, this));
+
+		this.addCommand({
+			id: "generate-wiki-summary-normalised",
+			name: "Generate wiki summary (Entire Vault)",
+			callback: async () => {
+				try {
+					await generateSummary(this.app, this.settings);
+				} catch (err: any) {
+					console.error(err);
+					new Notice(`Failed: ${err?.message ?? String(err)}`);
+				}
+			},
+		});
+
+		this.addCommand({
+			id: "generate-wiki-summary-from-links",
+			name: "Generate wiki summary (Select Folder...)",
+			callback: async () => {
+				// Pass settings to the modal so it knows the history
+				new FolderSuggestModal(this.app, this.settings, async (selectedFolder) => {
+
+					// 1. Update History
+					await this.addToHistory(selectedFolder.path);
+
+					// 2. Run Generator
+					try {
+						await generateSummaryFromLinks(this.app, this.settings, selectedFolder.path);
+					} catch (err: any) {
+						console.error(err);
+						new Notice(`Failed: ${err?.message ?? String(err)}`);
+					}
+				}).open();
+			},
+		});
+	}
+
+	async addToHistory(path: string) {
+		// Remove if already exists (so we can move it to the top)
+		let recents = this.settings.recentFolders.filter(p => p !== path);
+
+		// Add to start
+		recents.unshift(path);
+
+		// Limit to 5 items
+		if (recents.length > 5) {
+			recents = recents.slice(0, 5);
+		}
+
+		this.settings.recentFolders = recents;
+		await this.saveSettings();
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
+	}
+}
+
+/**
+ * A modal that lists folders, prioritizing recent ones.
+ */
+class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
+	settings: WikiSummarySettings;
+	onChoose: (folder: TFolder) => void;
+
+	constructor(app: App, settings: WikiSummarySettings, onChoose: (folder: TFolder) => void) {
+		super(app);
+		this.settings = settings;
+		this.onChoose = onChoose;
+		this.setPlaceholder("Select a folder to scan (🕒 = Recent)");
+	}
+
+	getItems(): TFolder[] {
+		const allFolders = this.app.vault.getAllLoadedFiles()
+			.filter((f): f is TFolder => f instanceof TFolder);
+
+		const history = this.settings.recentFolders;
+
+		// Sort: Recents first (in order of history), then alphabetical
+		return allFolders.sort((a, b) => {
+			const idxA = history.indexOf(a.path);
+			const idxB = history.indexOf(b.path);
+
+			// Both are in history: sort by index (lower index = more recent)
+			if (idxA !== -1 && idxB !== -1) {
+				return idxA - idxB;
+			}
+
+			// A is in history, B is not
+			if (idxA !== -1) return -1;
+
+			// B is in history, A is not
+			if (idxB !== -1) return 1;
+
+			// Neither in history: sort alphabetical
+			return a.path.localeCompare(b.path);
+		});
+	}
+
+	getItemText(folder: TFolder): string {
+		const isRecent = this.settings.recentFolders.includes(folder.path);
+		// Add a visual indicator
+		return isRecent ? `🕒 ${folder.path}` : folder.path;
+	}
+
+	onChooseItem(folder: TFolder, evt: MouseEvent | KeyboardEvent): void {
+		this.onChoose(folder);
+	}
+}
+
+import { App, PluginSettingTab, Setting, Plugin } from "obsidian";
+import { WikiSummarySettings } from "./types";
+
+export const DEFAULT_SETTINGS: WikiSummarySettings = {
+	outputFilePath: "Wiki Zusammenfassung normalised.txt",
+	globalExcludedDirNames: ["02_Meta", "00_Übersichten", "99_Res", "00_WikiDatein"],
+	dndwikiDirName: "DnDWiki",
+	dmNotesLabel: "DM NOTE",
+	wikiLabel: "WIKI ENTRY",
+	excludedFilePaths: [],
+	excludedGlobs: [],
+	recentFolders: [],
+};
+
+interface WikiPluginInterface extends Plugin {
+	settings: WikiSummarySettings;
+	saveSettings(): Promise<void>;
+}
+
+export class WikiSummarySettingTab extends PluginSettingTab {
+	plugin: WikiPluginInterface;
+
+	constructor(app: App, plugin: WikiPluginInterface) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		containerEl.createEl("h2", { text: "Wiki Summary Normalised — Settings" });
+
+		new Setting(containerEl)
+			.setName("Output file path")
+			.setDesc("Where the summary will be written.")
+			.addText((text) =>
+				text
+					.setPlaceholder("Wiki Zusammenfassung normalised.txt")
+					.setValue(this.plugin.settings.outputFilePath)
+					.onChange(async (value) => {
+						this.plugin.settings.outputFilePath = value.trim() || DEFAULT_SETTINGS.outputFilePath;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		containerEl.createEl("h3", { text: "Structure" });
+
+		new Setting(containerEl)
+			.setName("DnDWiki folder name")
+			.setDesc("Folder that contains wiki entries.")
+			.addText((text) =>
+				text
+					.setValue(this.plugin.settings.dndwikiDirName)
+					.onChange(async (value) => {
+						this.plugin.settings.dndwikiDirName = value.trim() || DEFAULT_SETTINGS.dndwikiDirName;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Excluded root folders")
+			.setDesc("Comma-separated folder names to skip.")
+			.addTextArea((area) =>
+				area
+					.setValue(this.plugin.settings.globalExcludedDirNames.join(","))
+					.onChange(async (value) => {
+						const dirs = value.split(",").map((s) => s.trim()).filter(Boolean);
+						this.plugin.settings.globalExcludedDirNames = dirs.length ? dirs : DEFAULT_SETTINGS.globalExcludedDirNames;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		containerEl.createEl("h3", { text: "Exclusions" });
+
+		new Setting(containerEl)
+			.setName("Excluded file paths")
+			.setDesc("Comma-separated exact paths.")
+			.addTextArea((area) =>
+				area
+					.setValue(this.plugin.settings.excludedFilePaths.join(", "))
+					.onChange(async (value) => {
+						this.plugin.settings.excludedFilePaths = value.split(",").map((s) => s.trim()).filter(Boolean);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Excluded globs")
+			.setDesc("One pattern per line.")
+			.addTextArea((area) =>
+				area
+					.setValue(this.plugin.settings.excludedGlobs.join("\n"))
+					.onChange(async (value) => {
+						this.plugin.settings.excludedGlobs = value.split("\n").map((s) => s.trim()).filter(Boolean);
+						await this.plugin.saveSettings();
+					})
+			);
+	}
+}
+
+export type SourceLabel = "DM NOTE" | "WIKI ENTRY";
+
+export interface Candidate {
+	sortKeyPath: string;
+	originalPath: string;
+	sourceLabel: SourceLabel;
+	isRoot?: boolean;
+}
+
+export interface WikiSummarySettings {
+	outputFilePath: string;
+
+	// Global / Logic settings
+	globalExcludedDirNames: string[];
+	dndwikiDirName: string;
+
+	// Labels
+	dmNotesLabel: SourceLabel;
+	wikiLabel: SourceLabel;
+
+	// Exclude specific files:
+	excludedFilePaths: string[];
+	excludedGlobs: string[];
+
+	// NEW: Store history of selected folders
+	recentFolders: string[];
+}
+
+import { normalizePath } from "obsidian";
+import { WikiSummarySettings } from "./types";
+
+// --- Path & Directory Helpers ---
+
+export function posixDirname(p: string): string {
+	const s = normalizePath(p);
+	const idx = s.lastIndexOf("/");
+	if (idx === -1) return ".";
+	if (idx === 0) return "/";
+	return s.slice(0, idx);
+}
+
+export function normalizeWikiSortKey(originalWikiPath: string, settings: WikiSummarySettings): string {
+	const prefix = settings.dndwikiDirName.replace(/\/+$/, "") + "/";
+	return originalWikiPath.startsWith(prefix)
+		? originalWikiPath.slice(prefix.length)
+		: originalWikiPath;
+}
+
+// --- Exclusion Logic ---
+
+export function isExcludedAtRoot(filePath: string, settings: WikiSummarySettings): boolean {
+	const first = filePath.split("/")[0] ?? "";
+	return settings.globalExcludedDirNames.includes(first);
+}
+
+export function isUnderDir(filePath: string, dirName: string): boolean {
+	return filePath === dirName || filePath.startsWith(dirName + "/");
+}
+
+export function isExcludedInsideDndWiki(filePath: string, settings: WikiSummarySettings): boolean {
+	const prefix = settings.dndwikiDirName.replace(/\/+$/, "") + "/";
+	if (!filePath.startsWith(prefix)) return false;
+
+	const rest = filePath.slice(prefix.length);
+	const firstInside = rest.split("/")[0] ?? "";
+	return settings.globalExcludedDirNames.includes(firstInside);
+}
+
+// --- Globs & Patterns ---
+
+function normalizeExcludePath(p: string): string {
+	const stripped = p.trim().replace(/^\.\//, "");
+	return normalizePath(stripped);
+}
+
+function globToRegExp(glob: string): RegExp {
+	const esc = (s: string) => s.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+	const g = glob.trim();
+	let re = "^";
+	let i = 0;
+
+	while (i < g.length) {
+		const c = g.charAt(i);
+		const next = g.charAt(i + 1);
+
+		if (c === "*") {
+			if (next === "*") {
+				i += 2;
+				if (g.charAt(i) === "/") i += 1;
+				re += "(?:.*\\/)?";
+			} else {
+				i += 1;
+				re += "[^/]*";
+			}
+		} else if (c === "?") {
+			i += 1;
+			re += "[^/]";
+		} else {
+			re += esc(c);
+			i += 1;
+		}
+	}
+	re += "$";
+	return new RegExp(re);
+}
+
+function matchesAnyGlob(filePath: string, globs: string[]): boolean {
+	for (const raw of globs) {
+		const g = raw.trim();
+		if (!g) continue;
+		const rx = globToRegExp(g);
+		if (rx.test(filePath)) return true;
+	}
+	return false;
+}
+
+export function isExcludedFilePath(filePath: string, settings: WikiSummarySettings): boolean {
+	const norm = normalizeExcludePath(filePath);
+
+	for (const p of settings.excludedFilePaths) {
+		if (normalizeExcludePath(p) === norm) return true;
+	}
+
+	if (matchesAnyGlob(norm, settings.excludedGlobs)) return true;
+
+	return false;
+}

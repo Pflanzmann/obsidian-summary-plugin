@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: WikiSummarySettings = {
 	excludedFilePaths: [],
 	excludedGlobs: [],
 	recentFolders: [],
+	scanDepth: 1, // Default to 1 (Files mentioned in the folder)
 };
 
 interface WikiPluginInterface extends Plugin {
@@ -40,6 +41,20 @@ export class WikiSummarySettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.outputFilePath)
 					.onChange(async (value) => {
 						this.plugin.settings.outputFilePath = value.trim() || DEFAULT_SETTINGS.outputFilePath;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Link Scan Depth")
+			.setDesc("0 = Only folder files. 1 = Files mentioned in folder. 2 = Files mentioned in those files, etc.")
+			.addSlider((slider) =>
+				slider
+					.setLimits(0, 5, 1)
+					.setValue(this.plugin.settings.scanDepth)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.plugin.settings.scanDepth = value;
 						await this.plugin.saveSettings();
 					})
 			);

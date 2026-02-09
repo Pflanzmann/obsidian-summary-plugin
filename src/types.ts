@@ -4,6 +4,7 @@ export interface Candidate {
 	sortKeyPath: string;
 	originalPath: string;
 	sourceLabel: SourceLabel;
+	isRoot?: boolean;
 }
 
 export interface WikiSummarySettings {
@@ -23,4 +24,7 @@ export interface WikiSummarySettings {
 
 	// NEW: Store history of selected folders
 	recentFolders: string[];
+
+	// NEW: Recursion depth
+	scanDepth: number;
 }

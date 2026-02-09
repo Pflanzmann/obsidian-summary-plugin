@@ -17,7 +17,7 @@ export async function generateSummary(app: App, settings: WikiSummarySettings): 
 
 	const candidates = createCandidates(allFiles, settings);
 
-	// Use the fixed path from settings
+	// No specific source folder list for global generation
 	await processAndWrite(app, candidates, settings, settings.outputFilePath);
 }
 
@@ -31,7 +31,7 @@ export async function generateSummaryFromLinks(
 	const { vault, metadataCache } = app;
 	const scanDir = normalizePath(folderPath);
 
-	// 1. Identify Source Files
+	// 1. Identify Source Files (Files inside the selected folder)
 	const sourceFiles = vault.getMarkdownFiles().filter(f =>
 		f.path === scanDir || f.path.startsWith(scanDir + "/")
 	);
@@ -41,19 +41,22 @@ export async function generateSummaryFromLinks(
 		return;
 	}
 
-	// 2. Recursive Link Discovery
-	const MAX_DEPTH = 2;
-	const processedPaths = new Set<string>();
-	const foundFilesMap = new Map<string, TFile>();
+	// 2. Recursive Link Discovery (Controlled by settings.scanDepth)
+	const processedPathsForLinks = new Set<string>();
+	const foundLinkFilesMap = new Map<string, TFile>();
 
 	// Initialize queue
 	let queue: { file: TFile; depth: number }[] = sourceFiles.map(f => ({ file: f, depth: 0 }));
-	sourceFiles.forEach(f => processedPaths.add(f.path));
+
+	// Mark source files as processed so they aren't re-added as "links"
+	sourceFiles.forEach(f => processedPathsForLinks.add(f.path));
 
 	while (queue.length > 0) {
 		const { file: currentFile, depth } = queue.shift()!;
 
-		if (depth >= MAX_DEPTH) continue;
+		// If we reached the user-configured depth, we stop looking for new links
+		// inside the current file.
+		if (depth >= settings.scanDepth) continue;
 
 		const cache = metadataCache.getFileCache(currentFile);
 		if (!cache) continue;
@@ -64,40 +67,79 @@ export async function generateSummaryFromLinks(
 			const targetFile = metadataCache.getFirstLinkpathDest(link.link, currentFile.path);
 
 			if (targetFile instanceof TFile && targetFile.extension === "md") {
-				if (!processedPaths.has(targetFile.path)) {
-					processedPaths.add(targetFile.path);
-					foundFilesMap.set(targetFile.path, targetFile);
+				if (!processedPathsForLinks.has(targetFile.path)) {
+					processedPathsForLinks.add(targetFile.path);
+					foundLinkFilesMap.set(targetFile.path, targetFile);
+
+					// Add to queue for deeper scanning
 					queue.push({ file: targetFile, depth: depth + 1 });
 				}
 			}
 		}
 	}
 
-	const targetFiles = Array.from(foundFilesMap.values());
+	const targetFiles = Array.from(foundLinkFilesMap.values());
 
-	if (targetFiles.length === 0) {
-		new Notice(`No links found starting from ${scanDir}`);
+	// 3. Match Logic & Candidate Creation
+	const allCandidates: Candidate[] = [];
+	const addedCandidatePaths = new Set<string>();
+
+	// Helper to process a list of files and their mirrors
+	const processFileBatch = (files: TFile[], isRoot: boolean) => {
+		for (const file of files) {
+			// A. Add the file itself
+			addCandidateIfNew(file, isRoot);
+
+			// B. Check for Mirror (Shadow) file in DnDWiki
+			const mirror = findDnDWikiMirror(app, file, settings);
+			if (mirror) {
+				addCandidateIfNew(mirror, isRoot);
+			}
+		}
+	};
+
+	const addCandidateIfNew = (file: TFile, isRoot: boolean) => {
+		if (addedCandidatePaths.has(file.path)) return;
+
+		const cList = createCandidates([file], settings);
+		cList.forEach(c => {
+			addedCandidatePaths.add(c.originalPath);
+			c.isRoot = isRoot;
+			allCandidates.push(c);
+		});
+	};
+
+	// Add Source Files (from the folder)
+	processFileBatch(sourceFiles, true);
+
+	// Add Linked Files (found via recursion)
+	processFileBatch(targetFiles, false);
+
+	if (allCandidates.length === 0) {
+		const folderName = scanDir.split('/').pop() || "Folder";
+		new Notice(`No relevant files found for ${folderName}`);
 		return;
 	}
 
-	// 3. Determine Dynamic Output Path
-	// Get the folder name (e.g. "00_Sessions/Chapter 1" -> "Chapter 1")
+	// 4. Determine Dynamic Output Path
 	const folderName = scanDir.split('/').pop() || "Folder";
-
-	// Determine where to save it. We use the directory from the settings,
-	// but change the filename.
 	const settingsDir = posixDirname(settings.outputFilePath);
 	const baseDir = settingsDir === "." ? "" : settingsDir + "/";
-
-	// Final name: "Wiki Summary - Chapter 1.txt"
 	const dynamicOutputPath = `${baseDir}Wiki Summary - ${folderName}.txt`;
 
-	// 4. Process
-	const candidates = createCandidates(targetFiles, settings);
-	await processAndWrite(app, candidates, settings, dynamicOutputPath);
+	await processAndWrite(app, allCandidates, settings, dynamicOutputPath);
 }
 
 // --- Shared Logic ---
+
+function findDnDWikiMirror(app: App, file: TFile, settings: WikiSummarySettings): TFile | null {
+	if (isUnderDir(file.path, settings.dndwikiDirName)) return null;
+
+	const wikiPath = normalizePath(`${settings.dndwikiDirName}/${file.path}`);
+	const wikiFile = app.vault.getAbstractFileByPath(wikiPath);
+
+	return (wikiFile instanceof TFile && wikiFile.extension === "md") ? wikiFile : null;
+}
 
 function createCandidates(files: TFile[], settings: WikiSummarySettings): Candidate[] {
 	const candidates: Candidate[] = [];
@@ -110,7 +152,6 @@ function createCandidates(files: TFile[], settings: WikiSummarySettings): Candid
 
 		if (isUnderDir(p, settings.dndwikiDirName)) {
 			if (isExcludedInsideDndWiki(p, settings)) continue;
-
 			candidates.push({
 				sortKeyPath: normalizeWikiSortKey(p, settings),
 				originalPath: p,
@@ -134,16 +175,20 @@ async function processAndWrite(
 	app: App,
 	candidates: Candidate[],
 	settings: WikiSummarySettings,
-	destinationPath: string // <--- Now accepts the specific destination
+	destinationPath: string
 ): Promise<void> {
 	if (candidates.length === 0) {
 		await writeOutput(app, destinationPath, "(Keine relevanten Dateien gefunden)\n");
 		return;
 	}
 
-	candidates.sort((a, b) =>
-		a.sortKeyPath < b.sortKeyPath ? -1 : a.sortKeyPath > b.sortKeyPath ? 1 : 0
-	);
+	// Sort: Root files first, then alphabetical by path
+	candidates.sort((a, b) => {
+		const aRoot = a.isRoot ? 1 : 0;
+		const bRoot = b.isRoot ? 1 : 0;
+		if (aRoot !== bRoot) return bRoot - aRoot;
+		return a.sortKeyPath.localeCompare(b.sortKeyPath);
+	});
 
 	let out = "";
 	let currentDir = "";
