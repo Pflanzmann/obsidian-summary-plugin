@@ -87,12 +87,13 @@ export class SummarySettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Mirror folder path")
-			.setDesc("The folder containing the secondary/mirror versions of notes.")
+			.setDesc("The folder containing the secondary/mirror versions of notes. Leave empty to disable mirroring.")
 			.addText((text) =>
 				text
 					.setValue(this.plugin.settings.mirrorFolderPath)
 					.onChange(async (value) => {
-						this.plugin.settings.mirrorFolderPath = value.trim() || DEFAULT_SETTINGS.mirrorFolderPath;
+						// Store raw value, empty string means disabled
+						this.plugin.settings.mirrorFolderPath = value.trim();
 						await this.plugin.saveSettings();
 					})
 			);

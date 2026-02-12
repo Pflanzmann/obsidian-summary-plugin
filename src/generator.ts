@@ -15,7 +15,6 @@ export async function generateSummary(app: App, settings: VaultSummarySettings):
 	const allFiles = vault.getMarkdownFiles();
 	const candidates = createCandidates(allFiles, settings);
 
-	// Use settings path exactly as is for full vault
 	const outputPath = generateDynamicPath(settings.outputFilePath, null);
 	await processAndWrite(app, candidates, settings, outputPath);
 }
@@ -39,9 +38,7 @@ export async function generateSummaryFromLinks(
 		return;
 	}
 
-	// Use settings path as base, append " - {FolderName}"
 	const outputPath = generateDynamicPath(settings.outputFilePath, folderName);
-
 	await processAndWrite(app, allCandidates, settings, outputPath);
 }
 
@@ -57,9 +54,7 @@ export async function generateSummaryFromFile(
 	const { startFiles, others } = calculateIncludedFiles(app, settings, startFile, config);
 	const allCandidates = buildCandidateList(app, settings, startFiles, others);
 
-	// Use settings path as base, append " - {FileName}"
 	const outputPath = generateDynamicPath(settings.outputFilePath, startFile.basename);
-
 	await processAndWrite(app, allCandidates, settings, outputPath);
 }
 
@@ -74,20 +69,24 @@ export function calculateIncludedFiles(
 
 	const { vault } = app;
 	const startFiles: TFile[] = [startFile];
+	const mirrorDir = settings.mirrorFolderPath.trim();
 
-	// Handle Mirror check for the start file
-	if (isUnderDir(startFile.path, settings.mirrorFolderPath)) {
-		const mirrorPrefix = settings.mirrorFolderPath.replace(/\/+$/, "") + "/";
-		if (startFile.path.startsWith(mirrorPrefix)) {
-			const primaryPath = startFile.path.slice(mirrorPrefix.length);
-			const primaryFile = vault.getAbstractFileByPath(primaryPath);
-			if (primaryFile instanceof TFile && primaryFile.extension === "md") {
-				startFiles.push(primaryFile);
+	// Only perform mirror logic if mirror is enabled
+	if (mirrorDir) {
+		// Handle Mirror check for the start file
+		if (isUnderDir(startFile.path, mirrorDir)) {
+			const mirrorPrefix = mirrorDir.replace(/\/+$/, "") + "/";
+			if (startFile.path.startsWith(mirrorPrefix)) {
+				const primaryPath = startFile.path.slice(mirrorPrefix.length);
+				const primaryFile = vault.getAbstractFileByPath(primaryPath);
+				if (primaryFile instanceof TFile && primaryFile.extension === "md") {
+					startFiles.push(primaryFile);
+				}
 			}
+		} else {
+			const mirror = findMirrorFile(app, startFile, settings);
+			if (mirror) startFiles.push(mirror);
 		}
-	} else {
-		const mirror = findMirrorFile(app, startFile, settings);
-		if (mirror) startFiles.push(mirror);
 	}
 
 	return runBFS(app, startFiles, config);
@@ -103,7 +102,6 @@ export function calculateIncludedFilesForFolder(
 	const { vault } = app;
 	const scanDir = normalizePath(folderPath);
 
-	// Get all markdown files in the folder (including subfolders)
 	const startFiles = vault.getMarkdownFiles().filter(f =>
 		f.path === scanDir || f.path.startsWith(scanDir + "/")
 	);
@@ -138,7 +136,7 @@ function runBFS(
 
 		if (depth > config.depth) continue;
 
-		// A. Process Outgoing (Mentions)
+		// A. Process Outgoing
 		if (config.includeMentions) {
 			const cache = metadataCache.getFileCache(currentFile);
 			if (cache) {
@@ -156,7 +154,7 @@ function runBFS(
 			}
 		}
 
-		// B. Process Incoming (Backlinks)
+		// B. Process Incoming
 		if (config.includeBacklinks && globalBacklinkMap) {
 			const sources = globalBacklinkMap.get(currentFile.path);
 			if (sources) {
@@ -243,9 +241,12 @@ function buildCandidateList(
 	const processBatch = (files: TFile[], isRoot: boolean) => {
 		for (const file of files) {
 			addCandidateIfNew(file, isRoot);
-			const mirror = findMirrorFile(app, file, settings);
-			if (mirror) {
-				addCandidateIfNew(mirror, isRoot);
+			// Only find mirror if setting is active
+			if (settings.mirrorFolderPath.trim()) {
+				const mirror = findMirrorFile(app, file, settings);
+				if (mirror) {
+					addCandidateIfNew(mirror, isRoot);
+				}
 			}
 		}
 	};
@@ -268,9 +269,12 @@ function buildCandidateList(
 }
 
 function findMirrorFile(app: App, file: TFile, settings: VaultSummarySettings): TFile | null {
-	if (isUnderDir(file.path, settings.mirrorFolderPath)) return null;
+	const mirrorDir = settings.mirrorFolderPath.trim();
+	if (!mirrorDir) return null; // Safety check
 
-	const mirrorPath = normalizePath(`${settings.mirrorFolderPath}/${file.path}`);
+	if (isUnderDir(file.path, mirrorDir)) return null;
+
+	const mirrorPath = normalizePath(`${mirrorDir}/${file.path}`);
 	const mirrorFile = app.vault.getAbstractFileByPath(mirrorPath);
 
 	return (mirrorFile instanceof TFile && mirrorFile.extension === "md") ? mirrorFile : null;
@@ -278,6 +282,8 @@ function findMirrorFile(app: App, file: TFile, settings: VaultSummarySettings): 
 
 function createCandidates(files: TFile[], settings: VaultSummarySettings): Candidate[] {
 	const candidates: Candidate[] = [];
+	const mirrorDir = settings.mirrorFolderPath.trim();
+	const mirrorActive = mirrorDir.length > 0;
 
 	for (const f of files) {
 		const p = normalizePath(f.path);
@@ -285,17 +291,20 @@ function createCandidates(files: TFile[], settings: VaultSummarySettings): Candi
 		if (isExcludedFilePath(p, settings)) continue;
 		if (isFolderExcluded(p, settings)) continue;
 
-		if (isUnderDir(p, settings.mirrorFolderPath)) {
+		if (mirrorActive && isUnderDir(p, mirrorDir)) {
+			// It is a mirror file
 			candidates.push({
 				sortKeyPath: normalizeMirrorSortKey(p, settings),
 				originalPath: p,
 				sourceLabel: settings.mirrorLabel,
 			});
 		} else {
+			// It is a standard/primary file
 			candidates.push({
 				sortKeyPath: p,
 				originalPath: p,
-				sourceLabel: settings.primaryLabel,
+				// If mirror is inactive, sourceLabel is empty string
+				sourceLabel: mirrorActive ? settings.primaryLabel : "",
 			});
 		}
 	}
@@ -324,7 +333,13 @@ async function processAndWrite(
 
 	for (const c of candidates) {
 		out += `### FILE: ${c.originalPath}\n`;
-		out += `> Source: ${c.sourceLabel}\n\n`;
+
+		// Only write Source line if label exists (i.e. Mirroring is ON)
+		if (c.sourceLabel) {
+			out += `> Source: ${c.sourceLabel}\n`;
+		}
+
+		out += `\n`;
 
 		const file = app.vault.getAbstractFileByPath(c.originalPath);
 

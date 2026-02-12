@@ -12,10 +12,7 @@ export function posixDirname(p: string): string {
 }
 
 /**
- * Generates a filename based on the base path defined in settings + a specific suffix (e.g. Folder Name).
- * Preserves the file extension and directory of the base path.
- *
- * Example: Base="Summaries/Vault.md", Suffix="Work" -> "Summaries/Vault - Work.md"
+ * Generates a filename based on the base path defined in settings + a specific suffix.
  */
 export function generateDynamicPath(basePath: string, suffix: string | null): string {
 	if (!suffix) return normalizePath(basePath);
@@ -24,24 +21,24 @@ export function generateDynamicPath(basePath: string, suffix: string | null): st
 	const lastDotIndex = normalized.lastIndexOf(".");
 	const lastSlashIndex = normalized.lastIndexOf("/");
 
-	// Check if there is a file extension (a dot appearing AFTER the last folder separator)
 	if (lastDotIndex > lastSlashIndex) {
 		const pathWithoutExt = normalized.substring(0, lastDotIndex);
 		const ext = normalized.substring(lastDotIndex);
 		return `${pathWithoutExt} - ${suffix}${ext}`;
 	} else {
-		// No extension found, just append
 		return `${normalized} - ${suffix}`;
 	}
 }
 
 /**
  * Normalizes the path for sorting.
- * If a file is in the Mirror folder, strip the mirror prefix so it sorts
- * alongside its original counterpart.
+ * If Mirror is disabled (empty path), simply returns the original path.
  */
 export function normalizeMirrorSortKey(originalPath: string, settings: VaultSummarySettings): string {
-	const prefix = settings.mirrorFolderPath.replace(/\/+$/, "") + "/";
+	const mirrorDir = settings.mirrorFolderPath.trim();
+	if (!mirrorDir) return originalPath; // Mirror disabled
+
+	const prefix = mirrorDir.replace(/\/+$/, "") + "/";
 	return originalPath.startsWith(prefix)
 		? originalPath.slice(prefix.length)
 		: originalPath;
@@ -50,7 +47,6 @@ export function normalizeMirrorSortKey(originalPath: string, settings: VaultSumm
 // --- Exclusion Logic ---
 
 export function isUnderDir(filePath: string, dirName: string): boolean {
-	// Normalize both to ensure matching separators
 	const fp = normalizePath(filePath);
 	const dn = normalizePath(dirName);
 	return fp === dn || fp.startsWith(dn + "/");
@@ -61,6 +57,7 @@ export function isUnderDir(filePath: string, dirName: string): boolean {
  */
 export function isFolderExcluded(filePath: string, settings: VaultSummarySettings): boolean {
 	const normalizedFile = normalizePath(filePath);
+	const mirrorDir = settings.mirrorFolderPath.trim();
 
 	for (const excludedDir of settings.globalExcludedDirNames) {
 		const normalizedExclude = normalizePath(excludedDir);
@@ -71,9 +68,9 @@ export function isFolderExcluded(filePath: string, settings: VaultSummarySetting
 			return true;
 		}
 
-		// 2. Mirror Relative Match
-		if (isUnderDir(normalizedFile, settings.mirrorFolderPath)) {
-			const mirrorPrefix = settings.mirrorFolderPath.replace(/\/+$/, "") + "/";
+		// 2. Mirror Relative Match (Only if mirror is active)
+		if (mirrorDir && isUnderDir(normalizedFile, mirrorDir)) {
+			const mirrorPrefix = mirrorDir.replace(/\/+$/, "") + "/";
 
 			if (normalizedFile.startsWith(mirrorPrefix)) {
 				const relativePath = normalizedFile.slice(mirrorPrefix.length);
