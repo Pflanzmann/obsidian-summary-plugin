@@ -27,19 +27,14 @@ export async function generateSummaryFromLinks(
 	folderPath: string,
 	config: RunConfig
 ): Promise<void> {
-
-	const { startFiles, others } = calculateIncludedFilesForFolder(app, settings, folderPath, config);
-	const allCandidates = buildCandidateList(app, settings, startFiles, others);
-
+	// Old entry point - loops logic. Kept for backward compatibility if needed,
+	// but mostly replaced by the UI flow calling generateSummaryFromFiles
+	const files = getIncludedFilesForFolder(app, settings, folderPath, config);
 	const folderName = folderPath.split('/').pop() || "Folder";
-
-	if (allCandidates.length === 0) {
-		new Notice(`No relevant files found for ${folderName}`);
-		return;
-	}
-
 	const outputPath = generateDynamicPath(settings.outputFilePath, folderName);
-	await processAndWrite(app, allCandidates, settings, outputPath);
+
+	const candidates = buildCandidateList(app, settings, files.startFiles, files.others);
+	await processAndWrite(app, candidates, settings, outputPath);
 }
 
 // --- 3. Single File Mode ---
@@ -50,17 +45,37 @@ export async function generateSummaryFromFile(
 	startFile: TFile,
 	config: RunConfig
 ): Promise<void> {
-
-	const { startFiles, others } = calculateIncludedFiles(app, settings, startFile, config);
-	const allCandidates = buildCandidateList(app, settings, startFiles, others);
-
+	// Old entry point
+	const files = getIncludedFiles(app, settings, startFile, config);
 	const outputPath = generateDynamicPath(settings.outputFilePath, startFile.basename);
-	await processAndWrite(app, allCandidates, settings, outputPath);
+
+	const candidates = buildCandidateList(app, settings, files.startFiles, files.others);
+	await processAndWrite(app, candidates, settings, outputPath);
 }
 
-// --- 4. Calculation Logic (BFS) ---
+// --- 4. NEW: Generate from Specific List (Called by UI) ---
 
-export function calculateIncludedFiles(
+export async function generateSummaryFromFiles(
+	app: App,
+	settings: VaultSummarySettings,
+	files: TFile[], // The files selected in the UI
+	sourceName: string // For filename generation
+): Promise<void> {
+
+	// We treat all passed files as "candidates".
+	// We re-run createCandidates to apply Mirror logic if applicable.
+	const candidates = createCandidates(files, settings);
+
+	const outputPath = generateDynamicPath(settings.outputFilePath, sourceName);
+	await processAndWrite(app, candidates, settings, outputPath);
+}
+
+// --- 5. Calculation Logic (BFS) & Helpers ---
+
+/**
+ * Public helper to get the raw files for the UI preview
+ */
+export function getIncludedFiles(
 	app: App,
 	settings: VaultSummarySettings,
 	startFile: TFile,
@@ -73,7 +88,6 @@ export function calculateIncludedFiles(
 
 	// Only perform mirror logic if mirror is enabled
 	if (mirrorDir) {
-		// Handle Mirror check for the start file
 		if (isUnderDir(startFile.path, mirrorDir)) {
 			const mirrorPrefix = mirrorDir.replace(/\/+$/, "") + "/";
 			if (startFile.path.startsWith(mirrorPrefix)) {
@@ -92,7 +106,7 @@ export function calculateIncludedFiles(
 	return runBFS(app, startFiles, config);
 }
 
-export function calculateIncludedFilesForFolder(
+export function getIncludedFilesForFolder(
 	app: App,
 	settings: VaultSummarySettings,
 	folderPath: string,
@@ -124,6 +138,7 @@ function runBFS(
 		globalBacklinkMap = buildGlobalBacklinkMap(app);
 	}
 
+	// Depth 1 includes the files themselves
 	let queue: { file: TFile; depth: number }[] = roots.map(f => ({ file: f, depth: 1 }));
 
 	roots.forEach(f => {
@@ -176,30 +191,6 @@ function runBFS(
 	const others = Array.from(collectedFilesMap.values()).filter(f => !rootPaths.has(f.path));
 
 	return { startFiles: roots, others };
-}
-
-// --- 5. Preview Counters ---
-
-export function getPreviewCount(
-	app: App,
-	settings: VaultSummarySettings,
-	startFile: TFile,
-	config: RunConfig
-): number {
-	const { startFiles, others } = calculateIncludedFiles(app, settings, startFile, config);
-	const candidates = buildCandidateList(app, settings, startFiles, others);
-	return candidates.length;
-}
-
-export function getPreviewCountForFolder(
-	app: App,
-	settings: VaultSummarySettings,
-	folderPath: string,
-	config: RunConfig
-): number {
-	const { startFiles, others } = calculateIncludedFilesForFolder(app, settings, folderPath, config);
-	const candidates = buildCandidateList(app, settings, startFiles, others);
-	return candidates.length;
 }
 
 // --- Helpers ---
