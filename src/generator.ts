@@ -1,23 +1,19 @@
 import { App, TFile, normalizePath, Notice } from "obsidian";
-import { Candidate, WikiSummarySettings } from "./types";
+import { Candidate, VaultSummarySettings, SingleFileRunConfig } from "./types";
 import {
 	isExcludedFilePath,
-	isExcludedAtRoot,
+	isFolderExcluded,
 	isUnderDir,
-	isExcludedInsideDndWiki,
-	normalizeWikiSortKey,
+	normalizeMirrorSortKey,
 	posixDirname
 } from "./utils";
 
 // --- 1. Standard Generation (All Vault) ---
 
-export async function generateSummary(app: App, settings: WikiSummarySettings): Promise<void> {
+export async function generateSummary(app: App, settings: VaultSummarySettings): Promise<void> {
 	const { vault } = app;
 	const allFiles = vault.getMarkdownFiles();
-
 	const candidates = createCandidates(allFiles, settings);
-
-	// No specific source folder list for global generation
 	await processAndWrite(app, candidates, settings, settings.outputFilePath);
 }
 
@@ -25,13 +21,12 @@ export async function generateSummary(app: App, settings: WikiSummarySettings): 
 
 export async function generateSummaryFromLinks(
 	app: App,
-	settings: WikiSummarySettings,
+	settings: VaultSummarySettings,
 	folderPath: string
 ): Promise<void> {
 	const { vault, metadataCache } = app;
 	const scanDir = normalizePath(folderPath);
 
-	// 1. Identify Source Files (Files inside the selected folder)
 	const sourceFiles = vault.getMarkdownFiles().filter(f =>
 		f.path === scanDir || f.path.startsWith(scanDir + "/")
 	);
@@ -41,21 +36,15 @@ export async function generateSummaryFromLinks(
 		return;
 	}
 
-	// 2. Recursive Link Discovery (Controlled by settings.scanDepth)
 	const processedPathsForLinks = new Set<string>();
 	const foundLinkFilesMap = new Map<string, TFile>();
 
-	// Initialize queue
 	let queue: { file: TFile; depth: number }[] = sourceFiles.map(f => ({ file: f, depth: 0 }));
-
-	// Mark source files as processed so they aren't re-added as "links"
 	sourceFiles.forEach(f => processedPathsForLinks.add(f.path));
 
 	while (queue.length > 0) {
 		const { file: currentFile, depth } = queue.shift()!;
 
-		// If we reached the user-configured depth, we stop looking for new links
-		// inside the current file.
 		if (depth >= settings.scanDepth) continue;
 
 		const cache = metadataCache.getFileCache(currentFile);
@@ -65,13 +54,10 @@ export async function generateSummaryFromLinks(
 
 		for (const link of links) {
 			const targetFile = metadataCache.getFirstLinkpathDest(link.link, currentFile.path);
-
 			if (targetFile instanceof TFile && targetFile.extension === "md") {
 				if (!processedPathsForLinks.has(targetFile.path)) {
 					processedPathsForLinks.add(targetFile.path);
 					foundLinkFilesMap.set(targetFile.path, targetFile);
-
-					// Add to queue for deeper scanning
 					queue.push({ file: targetFile, depth: depth + 1 });
 				}
 			}
@@ -79,19 +65,164 @@ export async function generateSummaryFromLinks(
 	}
 
 	const targetFiles = Array.from(foundLinkFilesMap.values());
+	const allCandidates = buildCandidateList(app, settings, sourceFiles, targetFiles);
 
-	// 3. Match Logic & Candidate Creation
+	if (allCandidates.length === 0) {
+		const folderName = scanDir.split('/').pop() || "Folder";
+		new Notice(`No relevant files found for ${folderName}`);
+		return;
+	}
+
+	const folderName = scanDir.split('/').pop() || "Folder";
+	const settingsDir = posixDirname(settings.outputFilePath);
+	const baseDir = settingsDir === "." ? "" : settingsDir + "/";
+	const dynamicOutputPath = `${baseDir}Summary - ${folderName}.txt`;
+
+	await processAndWrite(app, allCandidates, settings, dynamicOutputPath);
+}
+
+// --- 3. Single File Mode (NEW) ---
+
+export async function generateSummaryFromFile(
+	app: App,
+	settings: VaultSummarySettings,
+	startFile: TFile,
+	config: SingleFileRunConfig
+): Promise<void> {
+	const { metadataCache, vault } = app;
+
+	const processedPaths = new Set<string>();
+	const collectedFilesMap = new Map<string, TFile>();
+
+	// 0. Pre-calculate Backlinks Map if needed
+	let globalBacklinkMap: Map<string, Set<string>> | null = null;
+	if (config.includeBacklinks) {
+		globalBacklinkMap = buildGlobalBacklinkMap(app);
+	}
+
+	// 1. Identify Start Nodes (Primary AND Mirror)
+	const startFiles: TFile[] = [startFile];
+
+	if (isUnderDir(startFile.path, settings.mirrorFolderPath)) {
+		const mirrorPrefix = settings.mirrorFolderPath.replace(/\/+$/, "") + "/";
+		if (startFile.path.startsWith(mirrorPrefix)) {
+			const primaryPath = startFile.path.slice(mirrorPrefix.length);
+			const primaryFile = vault.getAbstractFileByPath(primaryPath);
+			if (primaryFile instanceof TFile && primaryFile.extension === "md") {
+				startFiles.push(primaryFile);
+			}
+		}
+	} else {
+		const mirror = findMirrorFile(app, startFile, settings);
+		if (mirror) {
+			startFiles.push(mirror);
+		}
+	}
+
+	// 2. Initialize Queue
+	let queue: { file: TFile; depth: number }[] = startFiles.map(f => ({ file: f, depth: 1 }));
+
+	startFiles.forEach(f => {
+		processedPaths.add(f.path);
+		collectedFilesMap.set(f.path, f);
+	});
+
+	// 3. Run BFS
+	while (queue.length > 0) {
+		const { file: currentFile, depth } = queue.shift()!;
+
+		if (depth > config.depth) continue;
+
+		// A. Process Outgoing (Mentions)
+		if (config.includeMentions) {
+			const cache = metadataCache.getFileCache(currentFile);
+			if (cache) {
+				const links = [...(cache.links || []), ...(cache.embeds || [])];
+				for (const link of links) {
+					const target = metadataCache.getFirstLinkpathDest(link.link, currentFile.path);
+					if (target instanceof TFile && target.extension === "md") {
+						if (!processedPaths.has(target.path)) {
+							processedPaths.add(target.path);
+							collectedFilesMap.set(target.path, target);
+							queue.push({ file: target, depth: depth + 1 });
+						}
+					}
+				}
+			}
+		}
+
+		// B. Process Incoming (Backlinks) - Start Files Only
+		if (config.includeBacklinks && globalBacklinkMap && depth === 1) {
+			const sources = globalBacklinkMap.get(currentFile.path);
+			if (sources) {
+				for (const sourcePath of sources) {
+					const sourceFile = vault.getAbstractFileByPath(sourcePath);
+					if (sourceFile instanceof TFile && sourceFile.extension === "md") {
+						if (!processedPaths.has(sourceFile.path)) {
+							processedPaths.add(sourceFile.path);
+							collectedFilesMap.set(sourceFile.path, sourceFile);
+							queue.push({ file: sourceFile, depth: depth + 1 });
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 4. Build Output
+	const startPaths = new Set(startFiles.map(f => f.path));
+	const others = Array.from(collectedFilesMap.values()).filter(f => !startPaths.has(f.path));
+
+	const allCandidates = buildCandidateList(app, settings, startFiles, others);
+
+	const settingsDir = posixDirname(settings.outputFilePath);
+	const baseDir = settingsDir === "." ? "" : settingsDir + "/";
+	const dynamicOutputPath = `${baseDir}Summary - ${startFile.basename}.txt`;
+
+	await processAndWrite(app, allCandidates, settings, dynamicOutputPath);
+}
+
+// --- Helper: Build Global Backlink Map ---
+function buildGlobalBacklinkMap(app: App): Map<string, Set<string>> {
+	const map = new Map<string, Set<string>>();
+	const allFiles = app.vault.getMarkdownFiles();
+	const { metadataCache } = app;
+
+	for (const sourceFile of allFiles) {
+		const cache = metadataCache.getFileCache(sourceFile);
+		if (!cache) continue;
+
+		const links = [...(cache.links || []), ...(cache.embeds || [])];
+
+		for (const link of links) {
+			const targetFile = metadataCache.getFirstLinkpathDest(link.link, sourceFile.path);
+
+			if (targetFile instanceof TFile) {
+				if (!map.has(targetFile.path)) {
+					map.set(targetFile.path, new Set());
+				}
+				map.get(targetFile.path)?.add(sourceFile.path);
+			}
+		}
+	}
+	return map;
+}
+
+// --- Helper: Build Candidate List (Mirrors + Exclusions) ---
+
+function buildCandidateList(
+	app: App,
+	settings: VaultSummarySettings,
+	roots: TFile[],
+	others: TFile[]
+): Candidate[] {
 	const allCandidates: Candidate[] = [];
 	const addedCandidatePaths = new Set<string>();
 
-	// Helper to process a list of files and their mirrors
-	const processFileBatch = (files: TFile[], isRoot: boolean) => {
+	const processBatch = (files: TFile[], isRoot: boolean) => {
 		for (const file of files) {
-			// A. Add the file itself
 			addCandidateIfNew(file, isRoot);
-
-			// B. Check for Mirror (Shadow) file in DnDWiki
-			const mirror = findDnDWikiMirror(app, file, settings);
+			const mirror = findMirrorFile(app, file, settings);
 			if (mirror) {
 				addCandidateIfNew(mirror, isRoot);
 			}
@@ -109,80 +240,64 @@ export async function generateSummaryFromLinks(
 		});
 	};
 
-	// Add Source Files (from the folder)
-	processFileBatch(sourceFiles, true);
+	processBatch(roots, true);
+	processBatch(others, false);
 
-	// Add Linked Files (found via recursion)
-	processFileBatch(targetFiles, false);
-
-	if (allCandidates.length === 0) {
-		const folderName = scanDir.split('/').pop() || "Folder";
-		new Notice(`No relevant files found for ${folderName}`);
-		return;
-	}
-
-	// 4. Determine Dynamic Output Path
-	const folderName = scanDir.split('/').pop() || "Folder";
-	const settingsDir = posixDirname(settings.outputFilePath);
-	const baseDir = settingsDir === "." ? "" : settingsDir + "/";
-	const dynamicOutputPath = `${baseDir}Wiki Summary - ${folderName}.txt`;
-
-	await processAndWrite(app, allCandidates, settings, dynamicOutputPath);
+	return allCandidates;
 }
 
 // --- Shared Logic ---
 
-function findDnDWikiMirror(app: App, file: TFile, settings: WikiSummarySettings): TFile | null {
-	if (isUnderDir(file.path, settings.dndwikiDirName)) return null;
+function findMirrorFile(app: App, file: TFile, settings: VaultSummarySettings): TFile | null {
+	if (isUnderDir(file.path, settings.mirrorFolderPath)) return null;
 
-	const wikiPath = normalizePath(`${settings.dndwikiDirName}/${file.path}`);
-	const wikiFile = app.vault.getAbstractFileByPath(wikiPath);
+	const mirrorPath = normalizePath(`${settings.mirrorFolderPath}/${file.path}`);
+	const mirrorFile = app.vault.getAbstractFileByPath(mirrorPath);
 
-	return (wikiFile instanceof TFile && wikiFile.extension === "md") ? wikiFile : null;
+	return (mirrorFile instanceof TFile && mirrorFile.extension === "md") ? mirrorFile : null;
 }
 
-function createCandidates(files: TFile[], settings: WikiSummarySettings): Candidate[] {
+function createCandidates(files: TFile[], settings: VaultSummarySettings): Candidate[] {
 	const candidates: Candidate[] = [];
 
 	for (const f of files) {
 		const p = normalizePath(f.path);
 
 		if (isExcludedFilePath(p, settings)) continue;
-		if (isExcludedAtRoot(p, settings)) continue;
 
-		if (isUnderDir(p, settings.dndwikiDirName)) {
-			if (isExcludedInsideDndWiki(p, settings)) continue;
+		// NEW: Use the robust folder exclusion check
+		if (isFolderExcluded(p, settings)) continue;
+
+		if (isUnderDir(p, settings.mirrorFolderPath)) {
+			// Note: isFolderExcluded handles mirror-relative exclusion now.
+			// so we just check if it's the mirror folder itself or a valid file.
 			candidates.push({
-				sortKeyPath: normalizeWikiSortKey(p, settings),
+				sortKeyPath: normalizeMirrorSortKey(p, settings),
 				originalPath: p,
-				sourceLabel: settings.wikiLabel,
+				sourceLabel: settings.mirrorLabel,
 			});
 		} else {
 			candidates.push({
 				sortKeyPath: p,
 				originalPath: p,
-				sourceLabel: settings.dmNotesLabel,
+				sourceLabel: settings.primaryLabel,
 			});
 		}
 	}
 	return candidates;
 }
 
-/**
- * Generates the text content and writes it to the specific output path.
- */
 async function processAndWrite(
 	app: App,
 	candidates: Candidate[],
-	settings: WikiSummarySettings,
+	settings: VaultSummarySettings,
 	destinationPath: string
 ): Promise<void> {
 	if (candidates.length === 0) {
-		await writeOutput(app, destinationPath, "(Keine relevanten Dateien gefunden)\n");
+		await writeOutput(app, destinationPath, "(No relevant files found)\n");
 		return;
 	}
 
-	// Sort: Root files first, then alphabetical by path
 	candidates.sort((a, b) => {
 		const aRoot = a.isRoot ? 1 : 0;
 		const bRoot = b.isRoot ? 1 : 0;
@@ -191,29 +306,24 @@ async function processAndWrite(
 	});
 
 	let out = "";
-	let currentDir = "";
 
 	for (const c of candidates) {
-		const dir = posixDirname(c.sortKeyPath);
-
-		if (dir !== currentDir) {
-			if (currentDir !== "") out += "\n";
-			out += `--- DIRECTORY: ${dir} ---\n\n`;
-			currentDir = dir;
-		}
-
-		out += `### ${c.sourceLabel}: ${c.originalPath} ###\n\n`;
+		out += `### FILE: ${c.originalPath}\n`;
+		out += `> Source: ${c.sourceLabel}\n\n`;
 
 		const file = app.vault.getAbstractFileByPath(c.originalPath);
+
+		out += "````markdown\n";
+
 		if (file instanceof TFile) {
 			const content = await app.vault.cachedRead(file);
 			out += content;
 			if (!out.endsWith("\n")) out += "\n";
 		} else {
-			out += `FEHLER: Datei '${c.originalPath}' nicht gefunden.\n`;
+			out += `ERROR: File '${c.originalPath}' not found.\n`;
 		}
 
-		out += "\n=============================================\n\n";
+		out += "````\n\n";
 	}
 
 	await writeOutput(app, destinationPath, out);

@@ -1,27 +1,36 @@
 import { App, PluginSettingTab, Setting, Plugin } from "obsidian";
-import { WikiSummarySettings } from "./types";
+import { VaultSummarySettings } from "./types";
 
-export const DEFAULT_SETTINGS: WikiSummarySettings = {
-	outputFilePath: "Wiki Zusammenfassung normalised.txt",
-	globalExcludedDirNames: ["02_Meta", "00_Übersichten", "99_Res", "00_WikiDatein"],
-	dndwikiDirName: "DnDWiki",
-	dmNotesLabel: "DM NOTE",
-	wikiLabel: "WIKI ENTRY",
+export const DEFAULT_SETTINGS: VaultSummarySettings = {
+	outputFilePath: "Vault Summary.txt",
+	globalExcludedDirNames: ["Templates", "Meta", "Archives"],
+	mirrorFolderPath: "PublicMirror",
+
+	primaryLabel: "PRIMARY",
+	mirrorLabel: "MIRROR",
+
 	excludedFilePaths: [],
 	excludedGlobs: [],
 	recentFolders: [],
-	scanDepth: 1, // Default to 1 (Files mentioned in the folder)
+	scanDepth: 1,
+
+	// Defaults for Single File Mode
+	singleFileSettings: {
+		includeMentions: true,
+		includeBacklinks: false,
+		depth: 1
+	}
 };
 
-interface WikiPluginInterface extends Plugin {
-	settings: WikiSummarySettings;
+interface SummaryPluginInterface extends Plugin {
+	settings: VaultSummarySettings;
 	saveSettings(): Promise<void>;
 }
 
-export class WikiSummarySettingTab extends PluginSettingTab {
-	plugin: WikiPluginInterface;
+export class SummarySettingTab extends PluginSettingTab {
+	plugin: SummaryPluginInterface;
 
-	constructor(app: App, plugin: WikiPluginInterface) {
+	constructor(app: App, plugin: SummaryPluginInterface) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -30,14 +39,14 @@ export class WikiSummarySettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl("h2", { text: "Wiki Summary Normalised — Settings" });
+		containerEl.createEl("h2", { text: "Vault Summary — Settings" });
 
 		new Setting(containerEl)
 			.setName("Output file path")
 			.setDesc("Where the summary will be written.")
 			.addText((text) =>
 				text
-					.setPlaceholder("Wiki Zusammenfassung normalised.txt")
+					.setPlaceholder("Vault Summary.txt")
 					.setValue(this.plugin.settings.outputFilePath)
 					.onChange(async (value) => {
 						this.plugin.settings.outputFilePath = value.trim() || DEFAULT_SETTINGS.outputFilePath;
@@ -45,9 +54,11 @@ export class WikiSummarySettingTab extends PluginSettingTab {
 					})
 			);
 
+		containerEl.createEl("h3", { text: "Folder Scan Defaults" });
+
 		new Setting(containerEl)
 			.setName("Link Scan Depth")
-			.setDesc("0 = Only folder files. 1 = Files mentioned in folder. 2 = Files mentioned in those files, etc.")
+			.setDesc("Default depth for Folder Scan mode.")
 			.addSlider((slider) =>
 				slider
 					.setLimits(0, 5, 1)
@@ -59,19 +70,49 @@ export class WikiSummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Structure" });
+		containerEl.createEl("h3", { text: "Source Labels" });
 
 		new Setting(containerEl)
-			.setName("DnDWiki folder name")
-			.setDesc("Folder that contains wiki entries.")
+			.setName("Primary Source Name")
+			.setDesc("Label for standard files found in your vault.")
 			.addText((text) =>
 				text
-					.setValue(this.plugin.settings.dndwikiDirName)
+					.setPlaceholder("PRIMARY")
+					.setValue(this.plugin.settings.primaryLabel)
 					.onChange(async (value) => {
-						this.plugin.settings.dndwikiDirName = value.trim() || DEFAULT_SETTINGS.dndwikiDirName;
+						this.plugin.settings.primaryLabel = value.trim() || "PRIMARY";
 						await this.plugin.saveSettings();
 					})
 			);
+
+		new Setting(containerEl)
+			.setName("Mirror/Secondary Source Name")
+			.setDesc("Label for files found inside the Mirror Folder.")
+			.addText((text) =>
+				text
+					.setPlaceholder("MIRROR")
+					.setValue(this.plugin.settings.mirrorLabel)
+					.onChange(async (value) => {
+						this.plugin.settings.mirrorLabel = value.trim() || "MIRROR";
+						await this.plugin.saveSettings();
+					})
+			);
+
+		containerEl.createEl("h3", { text: "Mirror Configuration" });
+
+		new Setting(containerEl)
+			.setName("Mirror folder path")
+			.setDesc("The folder containing the secondary/mirror versions of notes.")
+			.addText((text) =>
+				text
+					.setValue(this.plugin.settings.mirrorFolderPath)
+					.onChange(async (value) => {
+						this.plugin.settings.mirrorFolderPath = value.trim() || DEFAULT_SETTINGS.mirrorFolderPath;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		containerEl.createEl("h3", { text: "Exclusions" });
 
 		new Setting(containerEl)
 			.setName("Excluded root folders")
@@ -85,8 +126,6 @@ export class WikiSummarySettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
-
-		containerEl.createEl("h3", { text: "Exclusions" });
 
 		new Setting(containerEl)
 			.setName("Excluded file paths")

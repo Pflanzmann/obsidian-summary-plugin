@@ -1,5 +1,5 @@
 import { normalizePath } from "obsidian";
-import { WikiSummarySettings } from "./types";
+import { VaultSummarySettings } from "./types";
 
 // --- Path & Directory Helpers ---
 
@@ -11,31 +11,64 @@ export function posixDirname(p: string): string {
 	return s.slice(0, idx);
 }
 
-export function normalizeWikiSortKey(originalWikiPath: string, settings: WikiSummarySettings): string {
-	const prefix = settings.dndwikiDirName.replace(/\/+$/, "") + "/";
-	return originalWikiPath.startsWith(prefix)
-		? originalWikiPath.slice(prefix.length)
-		: originalWikiPath;
+/**
+ * Normalizes the path for sorting.
+ * If a file is in the Mirror folder, strip the mirror prefix so it sorts
+ * alongside its original counterpart.
+ */
+export function normalizeMirrorSortKey(originalPath: string, settings: VaultSummarySettings): string {
+	const prefix = settings.mirrorFolderPath.replace(/\/+$/, "") + "/";
+	return originalPath.startsWith(prefix)
+		? originalPath.slice(prefix.length)
+		: originalPath;
 }
 
 // --- Exclusion Logic ---
 
-export function isExcludedAtRoot(filePath: string, settings: WikiSummarySettings): boolean {
-	const first = filePath.split("/")[0] ?? "";
-	return settings.globalExcludedDirNames.includes(first);
-}
-
 export function isUnderDir(filePath: string, dirName: string): boolean {
-	return filePath === dirName || filePath.startsWith(dirName + "/");
+	// Normalize both to ensure matching separators
+	const fp = normalizePath(filePath);
+	const dn = normalizePath(dirName);
+	return fp === dn || fp.startsWith(dn + "/");
 }
 
-export function isExcludedInsideDndWiki(filePath: string, settings: WikiSummarySettings): boolean {
-	const prefix = settings.dndwikiDirName.replace(/\/+$/, "") + "/";
-	if (!filePath.startsWith(prefix)) return false;
+/**
+ * Checks if a file should be excluded based on the folder list.
+ * Supports:
+ * 1. Exact root folders (e.g. "02_Meta")
+ * 2. Nested folders (e.g. "DnDWiki/01_Spiele")
+ * 3. Mirror-relative exclusions (e.g. "02_Meta" excludes "DnDWiki/02_Meta")
+ */
+export function isFolderExcluded(filePath: string, settings: VaultSummarySettings): boolean {
+	const normalizedFile = normalizePath(filePath);
 
-	const rest = filePath.slice(prefix.length);
-	const firstInside = rest.split("/")[0] ?? "";
-	return settings.globalExcludedDirNames.includes(firstInside);
+	for (const excludedDir of settings.globalExcludedDirNames) {
+		const normalizedExclude = normalizePath(excludedDir);
+		if (!normalizedExclude) continue;
+
+		// 1. Direct Match
+		// Handles "02_Meta" -> excluding "02_Meta/file.md"
+		// Handles "DnDWiki/01_Spiele" -> excluding "DnDWiki/01_Spiele/file.md"
+		if (isUnderDir(normalizedFile, normalizedExclude)) {
+			return true;
+		}
+
+		// 2. Mirror Relative Match
+		// Handles "02_Meta" -> excluding "PublicMirror/02_Meta/file.md"
+		// This keeps the behavior that "Global" exclusions apply inside the mirror too.
+		if (isUnderDir(normalizedFile, settings.mirrorFolderPath)) {
+			const mirrorPrefix = settings.mirrorFolderPath.replace(/\/+$/, "") + "/";
+
+			if (normalizedFile.startsWith(mirrorPrefix)) {
+				const relativePath = normalizedFile.slice(mirrorPrefix.length);
+				// Check if the file, effectively stripped of its mirror folder, is inside an excluded dir
+				if (isUnderDir(relativePath, normalizedExclude)) {
+					return true;
+				}
+			}
+		}
+	}
+	return false;
 }
 
 // --- Globs & Patterns ---
@@ -86,7 +119,7 @@ function matchesAnyGlob(filePath: string, globs: string[]): boolean {
 	return false;
 }
 
-export function isExcludedFilePath(filePath: string, settings: WikiSummarySettings): boolean {
+export function isExcludedFilePath(filePath: string, settings: VaultSummarySettings): boolean {
 	const norm = normalizeExcludePath(filePath);
 
 	for (const p of settings.excludedFilePaths) {

@@ -1,30 +1,38 @@
-export type SourceLabel = "DM NOTE" | "WIKI ENTRY";
-
 export interface Candidate {
 	sortKeyPath: string;
 	originalPath: string;
-	sourceLabel: SourceLabel;
+	sourceLabel: string;
 	isRoot?: boolean;
 }
 
-export interface WikiSummarySettings {
+// Moved here so it can be used in Settings and Generator
+export interface SingleFileRunConfig {
+	includeMentions: boolean;
+	includeBacklinks: boolean;
+	depth: number;
+}
+
+export interface VaultSummarySettings {
 	outputFilePath: string;
 
 	// Global / Logic settings
 	globalExcludedDirNames: string[];
-	dndwikiDirName: string;
+	mirrorFolderPath: string;
 
-	// Labels
-	dmNotesLabel: SourceLabel;
-	wikiLabel: SourceLabel;
+	// Custom Labels
+	primaryLabel: string;
+	mirrorLabel: string;
 
 	// Exclude specific files:
 	excludedFilePaths: string[];
 	excludedGlobs: string[];
 
-	// NEW: Store history of selected folders
+	// Store history of selected folders
 	recentFolders: string[];
 
-	// NEW: Recursion depth
+	// Recursion depth (Folder mode)
 	scanDepth: number;
+
+	// NEW: Persist Single File Mode settings
+	singleFileSettings: SingleFileRunConfig;
 }
