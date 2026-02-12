@@ -14,8 +14,8 @@ export const DEFAULT_SETTINGS: VaultSummarySettings = {
 	recentFolders: [],
 	scanDepth: 1,
 
-	// Defaults for Single File Mode
-	singleFileSettings: {
+	// Defaults
+	lastRunSettings: {
 		includeMentions: true,
 		includeBacklinks: false,
 		depth: 1
@@ -42,30 +42,14 @@ export class SummarySettingTab extends PluginSettingTab {
 		containerEl.createEl("h2", { text: "Vault Summary — Settings" });
 
 		new Setting(containerEl)
-			.setName("Output file path")
-			.setDesc("Where the summary will be written.")
+			.setName("Base Output Path")
+			.setDesc("The base filename. In Folder/File modes, the source name is appended (e.g. 'Vault Summary - FolderName.txt').")
 			.addText((text) =>
 				text
 					.setPlaceholder("Vault Summary.txt")
 					.setValue(this.plugin.settings.outputFilePath)
 					.onChange(async (value) => {
 						this.plugin.settings.outputFilePath = value.trim() || DEFAULT_SETTINGS.outputFilePath;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		containerEl.createEl("h3", { text: "Folder Scan Defaults" });
-
-		new Setting(containerEl)
-			.setName("Link Scan Depth")
-			.setDesc("Default depth for Folder Scan mode.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(0, 5, 1)
-					.setValue(this.plugin.settings.scanDepth)
-					.setDynamicTooltip()
-					.onChange(async (value) => {
-						this.plugin.settings.scanDepth = value;
 						await this.plugin.saveSettings();
 					})
 			);

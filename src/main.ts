@@ -1,7 +1,13 @@
-import { App, Notice, Plugin, FuzzySuggestModal, TFolder, TFile, Modal, Setting } from "obsidian";
-import { VaultSummarySettings, SingleFileRunConfig } from "./types";
+import { App, Notice, Plugin, FuzzySuggestModal, TFolder, TFile, Modal, Setting, debounce } from "obsidian";
+import { VaultSummarySettings, RunConfig } from "./types";
 import { DEFAULT_SETTINGS, SummarySettingTab } from "./settings";
-import { generateSummary, generateSummaryFromLinks, generateSummaryFromFile } from "./generator";
+import {
+	generateSummary,
+	generateSummaryFromLinks,
+	generateSummaryFromFile,
+	getPreviewCount,
+	getPreviewCountForFolder
+} from "./generator";
 
 export default class VaultSummaryPlugin extends Plugin {
 	settings: VaultSummarySettings;
@@ -25,19 +31,22 @@ export default class VaultSummaryPlugin extends Plugin {
 			},
 		});
 
-		// 2. Folder Mode
+		// 2. Folder Mode (Updated to use Config Modal)
 		this.addCommand({
 			id: "generate-vault-summary-from-links",
 			name: "Generate summary (Select Folder...)",
 			callback: async () => {
-				new FolderSuggestModal(this.app, this.settings, async (selectedFolder) => {
-					await this.addToHistory(selectedFolder.path);
-					try {
-						await generateSummaryFromLinks(this.app, this.settings, selectedFolder.path);
-					} catch (err: any) {
-						console.error(err);
-						new Notice(`Failed: ${err?.message ?? String(err)}`);
-					}
+				new FolderSuggestModal(this.app, this.settings, (selectedFolder) => {
+					// Open Config Modal
+					new SummaryConfigModal(this.app, this, selectedFolder, async (config) => {
+						await this.addToHistory(selectedFolder.path);
+						try {
+							await generateSummaryFromLinks(this.app, this.settings, selectedFolder.path, config);
+						} catch (err: any) {
+							console.error(err);
+							new Notice(`Failed: ${err?.message ?? String(err)}`);
+						}
+					}).open();
 				}).open();
 			},
 		});
@@ -48,8 +57,7 @@ export default class VaultSummaryPlugin extends Plugin {
 			name: "Generate summary (Select File...)",
 			callback: async () => {
 				new FileSuggestModal(this.app, (file) => {
-					// Pass the plugin instance so the modal can read/save settings
-					new SingleFileConfigModal(this.app, this, file, async (config) => {
+					new SummaryConfigModal(this.app, this, file, async (config) => {
 						try {
 							await generateSummaryFromFile(this.app, this.settings, file, config);
 						} catch (err: any) {
@@ -101,63 +109,90 @@ class FileSuggestModal extends FuzzySuggestModal<TFile> {
 }
 
 /**
- * Configuration Dialog for Single File Mode
+ * General Configuration Dialog for Summary Generation
+ * Works for both Single File and Folder modes.
  */
-class SingleFileConfigModal extends Modal {
+class SummaryConfigModal extends Modal {
 	plugin: VaultSummaryPlugin;
-	file: TFile;
-	onSubmit: (config: SingleFileRunConfig) => void;
+	source: TFile | TFolder;
+	onSubmit: (config: RunConfig) => void;
 
-	config: SingleFileRunConfig;
+	config: RunConfig;
+
+	// UI Elements for updates
+	previewEl: HTMLElement;
 
 	constructor(
 		app: App,
 		plugin: VaultSummaryPlugin,
-		file: TFile,
-		onSubmit: (config: SingleFileRunConfig) => void
+		source: TFile | TFolder,
+		onSubmit: (config: RunConfig) => void
 	) {
 		super(app);
 		this.plugin = plugin;
-		this.file = file;
+		this.source = source;
 		this.onSubmit = onSubmit;
-
-		// Load from saved settings or use defaults
-		this.config = { ...this.plugin.settings.singleFileSettings };
+		// Reusing the same settings object for last run, or you could split them if desired
+		this.config = { ...this.plugin.settings.lastRunSettings };
 	}
 
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		contentEl.createEl("h2", { text: `Generate Summary for: ${this.file.basename}` });
+		const typeLabel = this.source instanceof TFolder ? "Folder" : "File";
+		const name = this.source instanceof TFile ? this.source.basename : this.source.name;
+
+		contentEl.createEl("h2", { text: `Generate Summary (${typeLabel})` });
+		contentEl.createEl("p", { text: `Source: ${name}`, cls: "setting-item-description" });
+
+		// --- Preview Area ---
+		this.previewEl = contentEl.createEl("div", {
+			cls: "setting-item-description",
+			text: "Calculating preview..."
+		});
+		this.previewEl.style.marginBottom = "20px";
+		this.previewEl.style.fontWeight = "bold";
+
+		// Initial Calculation
+		this.updatePreview();
 
 		new Setting(contentEl)
 			.setName("Include Mentions (Outgoing)")
-			.setDesc("Include files linked FROM this file.")
+			.setDesc("Include files linked FROM the source(s).")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.config.includeMentions)
-					.onChange((val) => (this.config.includeMentions = val))
+					.onChange((val) => {
+						this.config.includeMentions = val;
+						this.updatePreview();
+					})
 			);
 
 		new Setting(contentEl)
 			.setName("Include Backlinks (Incoming)")
-			.setDesc("Include files that link TO this file.")
+			.setDesc("Include files that link TO the source(s).")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.config.includeBacklinks)
-					.onChange((val) => (this.config.includeBacklinks = val))
+					.onChange((val) => {
+						this.config.includeBacklinks = val;
+						this.updatePreview();
+					})
 			);
 
 		new Setting(contentEl)
 			.setName("Search Depth")
-			.setDesc("How many levels deep to traverse.")
+			.setDesc("Levels of links to traverse.")
 			.addSlider((slider) =>
 				slider
-					.setLimits(1, 5, 1) // Start at 1 (File itself is 0, +1 for neighbors)
+					.setLimits(1, 5, 1)
 					.setValue(this.config.depth)
 					.setDynamicTooltip()
-					.onChange((val) => (this.config.depth = val))
+					.onChange(debounce((val) => {
+						this.config.depth = val;
+						this.updatePreview();
+					}, 200)) // Debounce slider
 			);
 
 		new Setting(contentEl).addButton((btn) =>
@@ -165,14 +200,28 @@ class SingleFileConfigModal extends Modal {
 				.setButtonText("Generate")
 				.setCta()
 				.onClick(async () => {
-					// Save settings for next time
-					this.plugin.settings.singleFileSettings = this.config;
+					this.plugin.settings.lastRunSettings = this.config;
 					await this.plugin.saveSettings();
-
 					this.close();
 					this.onSubmit(this.config);
 				})
 		);
+	}
+
+	updatePreview() {
+		if (!this.previewEl) return;
+		this.previewEl.setText("Updating count...");
+
+		// Run calculation asynchronously to avoid freezing UI
+		setTimeout(() => {
+			let count = 0;
+			if (this.source instanceof TFile) {
+				count = getPreviewCount(this.app, this.plugin.settings, this.source, this.config);
+			} else if (this.source instanceof TFolder) {
+				count = getPreviewCountForFolder(this.app, this.plugin.settings, this.source.path, this.config);
+			}
+			this.previewEl.setText(`Files Included: ${count}`);
+		}, 10);
 	}
 
 	onClose() {

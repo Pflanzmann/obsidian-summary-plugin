@@ -5,8 +5,8 @@ export interface Candidate {
 	isRoot?: boolean;
 }
 
-// Moved here so it can be used in Settings and Generator
-export interface SingleFileRunConfig {
+// Renamed from SingleFileRunConfig to RunConfig
+export interface RunConfig {
 	includeMentions: boolean;
 	includeBacklinks: boolean;
 	depth: number;
@@ -30,9 +30,9 @@ export interface VaultSummarySettings {
 	// Store history of selected folders
 	recentFolders: string[];
 
-	// Recursion depth (Folder mode)
+	// Recursion depth (Default for Folder mode if not overridden, though we now override it)
 	scanDepth: number;
 
-	// NEW: Persist Single File Mode settings
-	singleFileSettings: SingleFileRunConfig;
+	// Persist Mode settings (shared between Single File and Folder for now)
+	lastRunSettings: RunConfig;
 }

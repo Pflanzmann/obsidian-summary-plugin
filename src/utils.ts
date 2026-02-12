@@ -12,6 +12,30 @@ export function posixDirname(p: string): string {
 }
 
 /**
+ * Generates a filename based on the base path defined in settings + a specific suffix (e.g. Folder Name).
+ * Preserves the file extension and directory of the base path.
+ *
+ * Example: Base="Summaries/Vault.md", Suffix="Work" -> "Summaries/Vault - Work.md"
+ */
+export function generateDynamicPath(basePath: string, suffix: string | null): string {
+	if (!suffix) return normalizePath(basePath);
+
+	const normalized = normalizePath(basePath);
+	const lastDotIndex = normalized.lastIndexOf(".");
+	const lastSlashIndex = normalized.lastIndexOf("/");
+
+	// Check if there is a file extension (a dot appearing AFTER the last folder separator)
+	if (lastDotIndex > lastSlashIndex) {
+		const pathWithoutExt = normalized.substring(0, lastDotIndex);
+		const ext = normalized.substring(lastDotIndex);
+		return `${pathWithoutExt} - ${suffix}${ext}`;
+	} else {
+		// No extension found, just append
+		return `${normalized} - ${suffix}`;
+	}
+}
+
+/**
  * Normalizes the path for sorting.
  * If a file is in the Mirror folder, strip the mirror prefix so it sorts
  * alongside its original counterpart.
@@ -34,10 +58,6 @@ export function isUnderDir(filePath: string, dirName: string): boolean {
 
 /**
  * Checks if a file should be excluded based on the folder list.
- * Supports:
- * 1. Exact root folders (e.g. "02_Meta")
- * 2. Nested folders (e.g. "DnDWiki/01_Spiele")
- * 3. Mirror-relative exclusions (e.g. "02_Meta" excludes "DnDWiki/02_Meta")
  */
 export function isFolderExcluded(filePath: string, settings: VaultSummarySettings): boolean {
 	const normalizedFile = normalizePath(filePath);
@@ -47,21 +67,16 @@ export function isFolderExcluded(filePath: string, settings: VaultSummarySetting
 		if (!normalizedExclude) continue;
 
 		// 1. Direct Match
-		// Handles "02_Meta" -> excluding "02_Meta/file.md"
-		// Handles "DnDWiki/01_Spiele" -> excluding "DnDWiki/01_Spiele/file.md"
 		if (isUnderDir(normalizedFile, normalizedExclude)) {
 			return true;
 		}
 
 		// 2. Mirror Relative Match
-		// Handles "02_Meta" -> excluding "PublicMirror/02_Meta/file.md"
-		// This keeps the behavior that "Global" exclusions apply inside the mirror too.
 		if (isUnderDir(normalizedFile, settings.mirrorFolderPath)) {
 			const mirrorPrefix = settings.mirrorFolderPath.replace(/\/+$/, "") + "/";
 
 			if (normalizedFile.startsWith(mirrorPrefix)) {
 				const relativePath = normalizedFile.slice(mirrorPrefix.length);
-				// Check if the file, effectively stripped of its mirror folder, is inside an excluded dir
 				if (isUnderDir(relativePath, normalizedExclude)) {
 					return true;
 				}

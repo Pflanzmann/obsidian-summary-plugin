@@ -1,11 +1,11 @@
 import { App, TFile, normalizePath, Notice } from "obsidian";
-import { Candidate, VaultSummarySettings, SingleFileRunConfig } from "./types";
+import { Candidate, VaultSummarySettings, RunConfig } from "./types";
 import {
 	isExcludedFilePath,
 	isFolderExcluded,
 	isUnderDir,
 	normalizeMirrorSortKey,
-	posixDirname
+	generateDynamicPath
 } from "./utils";
 
 // --- 1. Standard Generation (All Vault) ---
@@ -14,7 +14,10 @@ export async function generateSummary(app: App, settings: VaultSummarySettings):
 	const { vault } = app;
 	const allFiles = vault.getMarkdownFiles();
 	const candidates = createCandidates(allFiles, settings);
-	await processAndWrite(app, candidates, settings, settings.outputFilePath);
+
+	// Use settings path exactly as is for full vault
+	const outputPath = generateDynamicPath(settings.outputFilePath, null);
+	await processAndWrite(app, candidates, settings, outputPath);
 }
 
 // --- 2. Link-Based Generation (Passed Folder) ---
@@ -22,87 +25,57 @@ export async function generateSummary(app: App, settings: VaultSummarySettings):
 export async function generateSummaryFromLinks(
 	app: App,
 	settings: VaultSummarySettings,
-	folderPath: string
+	folderPath: string,
+	config: RunConfig
 ): Promise<void> {
-	const { vault, metadataCache } = app;
-	const scanDir = normalizePath(folderPath);
 
-	const sourceFiles = vault.getMarkdownFiles().filter(f =>
-		f.path === scanDir || f.path.startsWith(scanDir + "/")
-	);
+	const { startFiles, others } = calculateIncludedFilesForFolder(app, settings, folderPath, config);
+	const allCandidates = buildCandidateList(app, settings, startFiles, others);
 
-	if (sourceFiles.length === 0) {
-		new Notice(`No markdown files found in folder: ${scanDir}`);
-		return;
-	}
-
-	const processedPathsForLinks = new Set<string>();
-	const foundLinkFilesMap = new Map<string, TFile>();
-
-	let queue: { file: TFile; depth: number }[] = sourceFiles.map(f => ({ file: f, depth: 0 }));
-	sourceFiles.forEach(f => processedPathsForLinks.add(f.path));
-
-	while (queue.length > 0) {
-		const { file: currentFile, depth } = queue.shift()!;
-
-		if (depth >= settings.scanDepth) continue;
-
-		const cache = metadataCache.getFileCache(currentFile);
-		if (!cache) continue;
-
-		const links = [...(cache.links || []), ...(cache.embeds || [])];
-
-		for (const link of links) {
-			const targetFile = metadataCache.getFirstLinkpathDest(link.link, currentFile.path);
-			if (targetFile instanceof TFile && targetFile.extension === "md") {
-				if (!processedPathsForLinks.has(targetFile.path)) {
-					processedPathsForLinks.add(targetFile.path);
-					foundLinkFilesMap.set(targetFile.path, targetFile);
-					queue.push({ file: targetFile, depth: depth + 1 });
-				}
-			}
-		}
-	}
-
-	const targetFiles = Array.from(foundLinkFilesMap.values());
-	const allCandidates = buildCandidateList(app, settings, sourceFiles, targetFiles);
+	const folderName = folderPath.split('/').pop() || "Folder";
 
 	if (allCandidates.length === 0) {
-		const folderName = scanDir.split('/').pop() || "Folder";
 		new Notice(`No relevant files found for ${folderName}`);
 		return;
 	}
 
-	const folderName = scanDir.split('/').pop() || "Folder";
-	const settingsDir = posixDirname(settings.outputFilePath);
-	const baseDir = settingsDir === "." ? "" : settingsDir + "/";
-	const dynamicOutputPath = `${baseDir}Summary - ${folderName}.txt`;
+	// Use settings path as base, append " - {FolderName}"
+	const outputPath = generateDynamicPath(settings.outputFilePath, folderName);
 
-	await processAndWrite(app, allCandidates, settings, dynamicOutputPath);
+	await processAndWrite(app, allCandidates, settings, outputPath);
 }
 
-// --- 3. Single File Mode (NEW) ---
+// --- 3. Single File Mode ---
 
 export async function generateSummaryFromFile(
 	app: App,
 	settings: VaultSummarySettings,
 	startFile: TFile,
-	config: SingleFileRunConfig
+	config: RunConfig
 ): Promise<void> {
-	const { metadataCache, vault } = app;
 
-	const processedPaths = new Set<string>();
-	const collectedFilesMap = new Map<string, TFile>();
+	const { startFiles, others } = calculateIncludedFiles(app, settings, startFile, config);
+	const allCandidates = buildCandidateList(app, settings, startFiles, others);
 
-	// 0. Pre-calculate Backlinks Map if needed
-	let globalBacklinkMap: Map<string, Set<string>> | null = null;
-	if (config.includeBacklinks) {
-		globalBacklinkMap = buildGlobalBacklinkMap(app);
-	}
+	// Use settings path as base, append " - {FileName}"
+	const outputPath = generateDynamicPath(settings.outputFilePath, startFile.basename);
 
-	// 1. Identify Start Nodes (Primary AND Mirror)
+	await processAndWrite(app, allCandidates, settings, outputPath);
+}
+
+// --- 4. Calculation Logic (BFS) ---
+
+export function calculateIncludedFiles(
+	app: App,
+	settings: VaultSummarySettings,
+	startFile: TFile,
+	config: RunConfig
+): { startFiles: TFile[], others: TFile[] } {
+
+	const { vault } = app;
 	const startFiles: TFile[] = [startFile];
 
+	// Handle Mirror check for the start file
 	if (isUnderDir(startFile.path, settings.mirrorFolderPath)) {
 		const mirrorPrefix = settings.mirrorFolderPath.replace(/\/+$/, "") + "/";
 		if (startFile.path.startsWith(mirrorPrefix)) {
@@ -114,20 +87,52 @@ export async function generateSummaryFromFile(
 		}
 	} else {
 		const mirror = findMirrorFile(app, startFile, settings);
-		if (mirror) {
-			startFiles.push(mirror);
-		}
+		if (mirror) startFiles.push(mirror);
 	}
 
-	// 2. Initialize Queue
-	let queue: { file: TFile; depth: number }[] = startFiles.map(f => ({ file: f, depth: 1 }));
+	return runBFS(app, startFiles, config);
+}
 
-	startFiles.forEach(f => {
+export function calculateIncludedFilesForFolder(
+	app: App,
+	settings: VaultSummarySettings,
+	folderPath: string,
+	config: RunConfig
+): { startFiles: TFile[], others: TFile[] } {
+
+	const { vault } = app;
+	const scanDir = normalizePath(folderPath);
+
+	// Get all markdown files in the folder (including subfolders)
+	const startFiles = vault.getMarkdownFiles().filter(f =>
+		f.path === scanDir || f.path.startsWith(scanDir + "/")
+	);
+
+	return runBFS(app, startFiles, config);
+}
+
+function runBFS(
+	app: App,
+	roots: TFile[],
+	config: RunConfig
+): { startFiles: TFile[], others: TFile[] } {
+
+	const { metadataCache, vault } = app;
+	const processedPaths = new Set<string>();
+	const collectedFilesMap = new Map<string, TFile>();
+
+	let globalBacklinkMap: Map<string, Set<string>> | null = null;
+	if (config.includeBacklinks) {
+		globalBacklinkMap = buildGlobalBacklinkMap(app);
+	}
+
+	let queue: { file: TFile; depth: number }[] = roots.map(f => ({ file: f, depth: 1 }));
+
+	roots.forEach(f => {
 		processedPaths.add(f.path);
 		collectedFilesMap.set(f.path, f);
 	});
 
-	// 3. Run BFS
 	while (queue.length > 0) {
 		const { file: currentFile, depth } = queue.shift()!;
 
@@ -151,8 +156,8 @@ export async function generateSummaryFromFile(
 			}
 		}
 
-		// B. Process Incoming (Backlinks) - Start Files Only
-		if (config.includeBacklinks && globalBacklinkMap && depth === 1) {
+		// B. Process Incoming (Backlinks)
+		if (config.includeBacklinks && globalBacklinkMap) {
 			const sources = globalBacklinkMap.get(currentFile.path);
 			if (sources) {
 				for (const sourcePath of sources) {
@@ -169,20 +174,38 @@ export async function generateSummaryFromFile(
 		}
 	}
 
-	// 4. Build Output
-	const startPaths = new Set(startFiles.map(f => f.path));
-	const others = Array.from(collectedFilesMap.values()).filter(f => !startPaths.has(f.path));
+	const rootPaths = new Set(roots.map(f => f.path));
+	const others = Array.from(collectedFilesMap.values()).filter(f => !rootPaths.has(f.path));
 
-	const allCandidates = buildCandidateList(app, settings, startFiles, others);
-
-	const settingsDir = posixDirname(settings.outputFilePath);
-	const baseDir = settingsDir === "." ? "" : settingsDir + "/";
-	const dynamicOutputPath = `${baseDir}Summary - ${startFile.basename}.txt`;
-
-	await processAndWrite(app, allCandidates, settings, dynamicOutputPath);
+	return { startFiles: roots, others };
 }
 
-// --- Helper: Build Global Backlink Map ---
+// --- 5. Preview Counters ---
+
+export function getPreviewCount(
+	app: App,
+	settings: VaultSummarySettings,
+	startFile: TFile,
+	config: RunConfig
+): number {
+	const { startFiles, others } = calculateIncludedFiles(app, settings, startFile, config);
+	const candidates = buildCandidateList(app, settings, startFiles, others);
+	return candidates.length;
+}
+
+export function getPreviewCountForFolder(
+	app: App,
+	settings: VaultSummarySettings,
+	folderPath: string,
+	config: RunConfig
+): number {
+	const { startFiles, others } = calculateIncludedFilesForFolder(app, settings, folderPath, config);
+	const candidates = buildCandidateList(app, settings, startFiles, others);
+	return candidates.length;
+}
+
+// --- Helpers ---
+
 function buildGlobalBacklinkMap(app: App): Map<string, Set<string>> {
 	const map = new Map<string, Set<string>>();
 	const allFiles = app.vault.getMarkdownFiles();
@@ -207,8 +230,6 @@ function buildGlobalBacklinkMap(app: App): Map<string, Set<string>> {
 	}
 	return map;
 }
-
-// --- Helper: Build Candidate List (Mirrors + Exclusions) ---
 
 function buildCandidateList(
 	app: App,
@@ -246,8 +267,6 @@ function buildCandidateList(
 	return allCandidates;
 }
 
-// --- Shared Logic ---
-
 function findMirrorFile(app: App, file: TFile, settings: VaultSummarySettings): TFile | null {
 	if (isUnderDir(file.path, settings.mirrorFolderPath)) return null;
 
@@ -264,13 +283,9 @@ function createCandidates(files: TFile[], settings: VaultSummarySettings): Candi
 		const p = normalizePath(f.path);
 
 		if (isExcludedFilePath(p, settings)) continue;
-
-		// NEW: Use the robust folder exclusion check
 		if (isFolderExcluded(p, settings)) continue;
 
 		if (isUnderDir(p, settings.mirrorFolderPath)) {
-			// Note: isFolderExcluded handles mirror-relative exclusion now.
-			// so we just check if it's the mirror folder itself or a valid file.
 			candidates.push({
 				sortKeyPath: normalizeMirrorSortKey(p, settings),
 				originalPath: p,
