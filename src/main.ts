@@ -20,7 +20,7 @@ export default class VaultSummaryPlugin extends Plugin {
 		// 1. Entire Vault
 		this.addCommand({
 			id: "generate-vault-summary",
-			name: "Generate summary (Entire Vault)",
+			name: "Generate summary: Entire vault",
 			callback: async () => {
 				try {
 					await generateSummary(this.app, this.settings);
@@ -31,15 +31,14 @@ export default class VaultSummaryPlugin extends Plugin {
 			},
 		});
 
-		// 2. Folder Mode (Updated to use Config Modal)
+		// 2. Folder Mode
 		this.addCommand({
 			id: "generate-vault-summary-from-links",
-			name: "Generate summary (Select Folder...)",
+			name: "Generate summary: Choose folder...",
 			callback: async () => {
 				new FolderSuggestModal(this.app, this.settings, (selectedFolder) => {
-					// Open Config Modal
 					new SummaryConfigModal(this.app, this, selectedFolder, async (config) => {
-						await this.addToHistory(selectedFolder.path);
+						await this.addFolderToHistory(selectedFolder.path);
 						try {
 							await generateSummaryFromLinks(this.app, this.settings, selectedFolder.path, config);
 						} catch (err: any) {
@@ -51,13 +50,14 @@ export default class VaultSummaryPlugin extends Plugin {
 			},
 		});
 
-		// 3. Single File Mode
+		// 3. Single File Mode (File Picker)
 		this.addCommand({
 			id: "generate-vault-summary-single-file",
-			name: "Generate summary (Select File...)",
+			name: "Generate summary: Choose file...",
 			callback: async () => {
-				new FileSuggestModal(this.app, (file) => {
+				new FileSuggestModal(this.app, this.settings, (file) => {
 					new SummaryConfigModal(this.app, this, file, async (config) => {
+						await this.addFileToHistory(file.path);
 						try {
 							await generateSummaryFromFile(this.app, this.settings, file, config);
 						} catch (err: any) {
@@ -68,13 +68,48 @@ export default class VaultSummaryPlugin extends Plugin {
 				}).open();
 			},
 		});
+
+		// 4. Current File Mode (Active View)
+		this.addCommand({
+			id: "generate-vault-summary-current-file",
+			name: "Generate summary: Active file",
+			checkCallback: (checking: boolean) => {
+				const activeFile = this.app.workspace.getActiveFile();
+
+				if (activeFile instanceof TFile && activeFile.extension === "md") {
+					if (!checking) {
+						new SummaryConfigModal(this.app, this, activeFile, async (config) => {
+							// Optionally add current file to history?
+							// Usually "Recent" implies selected via picker, but safe to add here too if desired.
+							await this.addFileToHistory(activeFile.path);
+							try {
+								await generateSummaryFromFile(this.app, this.settings, activeFile, config);
+							} catch (err: any) {
+								console.error(err);
+								new Notice(`Failed: ${err?.message ?? String(err)}`);
+							}
+						}).open();
+					}
+					return true;
+				}
+				return false;
+			},
+		});
 	}
 
-	async addToHistory(path: string) {
+	async addFolderToHistory(path: string) {
 		let recents = this.settings.recentFolders.filter(p => p !== path);
 		recents.unshift(path);
 		if (recents.length > 5) recents = recents.slice(0, 5);
 		this.settings.recentFolders = recents;
+		await this.saveSettings();
+	}
+
+	async addFileToHistory(path: string) {
+		let recents = this.settings.recentFiles.filter(p => p !== path);
+		recents.unshift(path);
+		if (recents.length > 5) recents = recents.slice(0, 5);
+		this.settings.recentFiles = recents;
 		await this.saveSettings();
 	}
 
@@ -84,23 +119,44 @@ export default class VaultSummaryPlugin extends Plugin {
 }
 
 /**
- * Modal to select a single file.
+ * Modal to select a single file (With History).
  */
 class FileSuggestModal extends FuzzySuggestModal<TFile> {
+	settings: VaultSummarySettings;
 	onChoose: (file: TFile) => void;
 
-	constructor(app: App, onChoose: (file: TFile) => void) {
+	constructor(app: App, settings: VaultSummarySettings, onChoose: (file: TFile) => void) {
 		super(app);
+		this.settings = settings;
 		this.onChoose = onChoose;
-		this.setPlaceholder("Select a starting file...");
+		this.setPlaceholder("Select a starting file (🕒 = Recent)...");
 	}
 
 	getItems(): TFile[] {
-		return this.app.vault.getMarkdownFiles();
+		const allFiles = this.app.vault.getMarkdownFiles();
+		const history = this.settings.recentFiles;
+
+		return allFiles.sort((a, b) => {
+			const idxA = history.indexOf(a.path);
+			const idxB = history.indexOf(b.path);
+
+			// If both in history, sort by recent index (lower index = more recent)
+			if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+
+			// If A is in history, it comes first
+			if (idxA !== -1) return -1;
+
+			// If B is in history, it comes first
+			if (idxB !== -1) return 1;
+
+			// Default alphabetical
+			return a.path.localeCompare(b.path);
+		});
 	}
 
 	getItemText(file: TFile): string {
-		return file.path;
+		const isRecent = this.settings.recentFiles.includes(file.path);
+		return isRecent ? `🕒 ${file.path}` : file.path;
 	}
 
 	onChooseItem(file: TFile, evt: MouseEvent | KeyboardEvent): void {
@@ -110,7 +166,6 @@ class FileSuggestModal extends FuzzySuggestModal<TFile> {
 
 /**
  * General Configuration Dialog for Summary Generation
- * Works for both Single File and Folder modes.
  */
 class SummaryConfigModal extends Modal {
 	plugin: VaultSummaryPlugin;
@@ -132,7 +187,6 @@ class SummaryConfigModal extends Modal {
 		this.plugin = plugin;
 		this.source = source;
 		this.onSubmit = onSubmit;
-		// Reusing the same settings object for last run, or you could split them if desired
 		this.config = { ...this.plugin.settings.lastRunSettings };
 	}
 
@@ -192,7 +246,7 @@ class SummaryConfigModal extends Modal {
 					.onChange(debounce((val) => {
 						this.config.depth = val;
 						this.updatePreview();
-					}, 200)) // Debounce slider
+					}, 200))
 			);
 
 		new Setting(contentEl).addButton((btn) =>
@@ -212,7 +266,6 @@ class SummaryConfigModal extends Modal {
 		if (!this.previewEl) return;
 		this.previewEl.setText("Updating count...");
 
-		// Run calculation asynchronously to avoid freezing UI
 		setTimeout(() => {
 			let count = 0;
 			if (this.source instanceof TFile) {
@@ -231,7 +284,7 @@ class SummaryConfigModal extends Modal {
 }
 
 /**
- * Folder Suggest Modal (Existing)
+ * Folder Suggest Modal
  */
 class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 	settings: VaultSummarySettings;

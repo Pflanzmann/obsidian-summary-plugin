@@ -5,7 +5,6 @@ export interface Candidate {
 	isRoot?: boolean;
 }
 
-// Renamed from SingleFileRunConfig to RunConfig
 export interface RunConfig {
 	includeMentions: boolean;
 	includeBacklinks: boolean;
@@ -27,12 +26,13 @@ export interface VaultSummarySettings {
 	excludedFilePaths: string[];
 	excludedGlobs: string[];
 
-	// Store history of selected folders
+	// Store history
 	recentFolders: string[];
+	recentFiles: string[]; // <--- NEW
 
-	// Recursion depth (Default for Folder mode if not overridden, though we now override it)
+	// Recursion depth
 	scanDepth: number;
 
-	// Persist Mode settings (shared between Single File and Folder for now)
+	// Persist Mode settings
 	lastRunSettings: RunConfig;
 }
