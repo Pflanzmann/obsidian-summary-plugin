@@ -1,4 +1,4 @@
-import { App, Notice, Plugin, FuzzySuggestModal, TFolder, TFile, Modal, Setting, debounce } from "obsidian";
+import { App, Notice, Plugin, FuzzySuggestModal, TFolder, TFile, Modal, Setting, debounce, ButtonComponent } from "obsidian";
 import { VaultSummarySettings, RunConfig } from "./types";
 import { DEFAULT_SETTINGS, SummarySettingTab } from "./settings";
 import {
@@ -176,6 +176,7 @@ class SummaryConfigModal extends Modal {
 
 	// UI Elements for updates
 	previewEl: HTMLElement;
+	generateBtn: ButtonComponent;
 
 	constructor(
 		app: App,
@@ -208,7 +209,6 @@ class SummaryConfigModal extends Modal {
 		this.previewEl.style.marginBottom = "20px";
 		this.previewEl.style.fontWeight = "bold";
 
-		// Initial Calculation
 		this.updatePreview();
 
 		new Setting(contentEl)
@@ -249,7 +249,8 @@ class SummaryConfigModal extends Modal {
 					}, 200))
 			);
 
-		new Setting(contentEl).addButton((btn) =>
+		new Setting(contentEl).addButton((btn) => {
+			this.generateBtn = btn;
 			btn
 				.setButtonText("Generate")
 				.setCta()
@@ -258,10 +259,18 @@ class SummaryConfigModal extends Modal {
 					await this.plugin.saveSettings();
 					this.close();
 					this.onSubmit(this.config);
-				})
-		);
+				});
+		});
+
+		// Use setTimeout to wait for the modal DOM to fully settle
+		setTimeout(() => {
+			if (this.generateBtn && this.generateBtn.buttonEl) {
+				this.generateBtn.buttonEl.focus();
+			}
+		}, 50);
 	}
 
+	// ... updatePreview and onClose ...
 	updatePreview() {
 		if (!this.previewEl) return;
 		this.previewEl.setText("Updating count...");
