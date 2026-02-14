@@ -285,15 +285,23 @@ function createCandidates(
 	for (const f of files) {
 		const p = normalizePath(f.path);
 
-		if (isExcludedFilePath(p, settings)) continue;
-		if (isFolderExcluded(p, settings)) continue;
+		// Calculate ID first to check if Root
+		const sortKey = normalizeMirrorSortKey(p, settings);
+		const isRoot = rootSortKeys.has(sortKey);
+
+		// Check exclusions ONLY if it is NOT a root file.
+		// Root files (explicitly selected) bypass global exclusions.
+		if (!isRoot) {
+			if (isExcludedFilePath(p, settings)) continue;
+			if (isFolderExcluded(p, settings)) continue;
+		}
 
 		let c: Candidate;
 
 		if (mirrorActive && isUnderDir(p, mirrorDir)) {
 			// Mirror file
 			c = {
-				sortKeyPath: normalizeMirrorSortKey(p, settings),
+				sortKeyPath: sortKey,
 				originalPath: p,
 				sourceLabel: settings.mirrorLabel,
 			};
@@ -307,7 +315,7 @@ function createCandidates(
 		}
 
 		// Determine if this candidate is part of the "Root" group
-		if (rootSortKeys.has(c.sortKeyPath)) {
+		if (isRoot) {
 			c.isRoot = true;
 		}
 
