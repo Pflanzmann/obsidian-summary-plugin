@@ -131,7 +131,10 @@ export class SummaryConfigModal extends Modal {
 				this.onSubmit(finalSelection, this.config, rootsSelection);
 			});
 
-		this.refreshFiles();
+		// Calculate files, render tree, then focus the button
+		this.refreshFiles().then(() => {
+			this.generateBtn.buttonEl.focus();
+		});
 	}
 
 	async refreshFiles() {
