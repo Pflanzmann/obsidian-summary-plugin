@@ -1,9 +1,10 @@
 import { App, Modal, ButtonComponent, Setting, TFile, TFolder, setIcon, debounce, Notice } from "obsidian";
 import { RunConfig, SummaryPluginInterface } from "../types";
 import { runBFS } from "../generator/graph";
-// Ensure resolveStartFiles is imported
 import { resolveStartFiles, expandWithMirrors } from "../generator/mirror";
 import { FileSuggestModal, FolderSuggestModal } from "./SuggestModals";
+// Import exclusion logic
+import { isExcludedFilePath, isFolderExcluded } from "../utils";
 
 interface TreeNode {
 	name: string;
@@ -147,8 +148,6 @@ export class SummaryConfigModal extends Modal {
 		}
 
 		// 2. Add Manually Added Files
-		// We re-resolve here just to be safe, though addFile now handles it too.
-		// This ensures if settings changed (e.g. mirror path) between adds, it updates correctly.
 		for (const manual of this.manuallyAddedFiles) {
 			const resolved = resolveStartFiles(this.app, this.plugin.settings, manual);
 			initialRoots.push(...resolved);
@@ -166,9 +165,17 @@ export class SummaryConfigModal extends Modal {
 		// 5. Run BFS
 		const bfsResult = runBFS(this.app, effectiveRoots, this.config);
 
-		// 6. Expand Mirrors
+		// 6. Expand Mirrors & Filter
+		// Roots are NOT filtered by exclusion (explicit inclusion)
 		this.startFiles = expandWithMirrors(this.app, this.plugin.settings, bfsResult.startFiles);
-		this.linkedFiles = expandWithMirrors(this.app, this.plugin.settings, bfsResult.others);
+
+		// Linked files ARE filtered by exclusion
+		const rawLinked = expandWithMirrors(this.app, this.plugin.settings, bfsResult.others);
+		this.linkedFiles = rawLinked.filter(f => {
+			if (isExcludedFilePath(f.path, this.plugin.settings)) return false;
+			if (isFolderExcluded(f.path, this.plugin.settings)) return false;
+			return true;
+		});
 
 		// 7. Rebuild UI
 		this.buildTrees();
@@ -305,24 +312,15 @@ export class SummaryConfigModal extends Modal {
 
 	addFile() {
 		new FileSuggestModal(this.app, this.plugin.settings, this.plugin.history, (file) => {
-			// Resolve the selected file into pairs if Mirror Mode is active
 			const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
-
 			let addedCount = 0;
 			for (const f of resolvedFiles) {
-				// Remove from delete list if present
-				if (this.removedAutoRoots.has(f.path)) {
-					this.removedAutoRoots.delete(f.path);
-				}
-
-				// Add to manual list if not present
+				if (this.removedAutoRoots.has(f.path)) this.removedAutoRoots.delete(f.path);
 				if (!this.manuallyAddedFiles.some(existing => existing.path === f.path)) {
 					this.manuallyAddedFiles.push(f);
 					addedCount++;
 				}
 			}
-
-			// Always refresh to show changes (even if only un-deleted)
 			this.refreshFiles();
 			if (addedCount > 1) new Notice(`Added ${addedCount} files (Primary + Mirror).`);
 		}).open();
@@ -332,21 +330,16 @@ export class SummaryConfigModal extends Modal {
 		new FolderSuggestModal(this.app, this.plugin.settings, this.plugin.history, (folder) => {
 			const files = this.app.vault.getMarkdownFiles().filter(f => f.path.startsWith(folder.path + "/"));
 			let count = 0;
-
 			files.forEach(file => {
-				// Resolve each file in the folder
 				const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
-
 				for (const f of resolvedFiles) {
 					if (this.removedAutoRoots.has(f.path)) this.removedAutoRoots.delete(f.path);
-
 					if (!this.manuallyAddedFiles.some(mf => mf.path === f.path)) {
 						this.manuallyAddedFiles.push(f);
 						count++;
 					}
 				}
 			});
-
 			if (count > 0) {
 				new Notice(`Added ${count} files from folder.`);
 				this.refreshFiles();

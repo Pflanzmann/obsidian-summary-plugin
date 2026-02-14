@@ -30,7 +30,6 @@ export async function processAndWrite(
 		if (cmp !== 0) return cmp;
 
 		// 3. Tie-Breaker: Primary before Mirror
-		// Only apply this sort if Mirror Mode is actually enabled.
 		if (settings.enableMirroring) {
 			if (a.sourceLabel === settings.primaryLabel && b.sourceLabel === settings.mirrorLabel) return -1;
 			if (b.sourceLabel === settings.primaryLabel && a.sourceLabel === settings.mirrorLabel) return 1;
@@ -45,8 +44,6 @@ export async function processAndWrite(
 	for (const c of candidates) {
 		out += `### FILE: ${c.originalPath}\n`;
 
-		// Only add the Source line if a label exists.
-		// If Mirror Mode is off, sourceLabel will be empty, and this line is skipped.
 		if (c.sourceLabel) {
 			out += `> Source: ${c.sourceLabel}\n`;
 		}
@@ -78,12 +75,12 @@ export function createCandidates(
 ): Candidate[] {
 	const candidates: Candidate[] = [];
 
-	// Determine if Mirror Mode is "Active".
-	// It requires the Toggle to be ON AND a valid Mirror Folder to be defined.
 	const mirrorDir = settings.mirrorFolderPath.trim();
 	const mirrorActive = settings.enableMirroring && mirrorDir.length > 0;
 
-	// Build a set of "Root Sort Keys" to identify root group members
+	// 1. Build a set of "Root Sort Keys".
+	// This identifies the unique content ID (Path relative to vault root, ignoring mirror prefix).
+	// This allows us to protect BOTH the Primary and the Mirror version of a selected root from exclusion.
 	const rootSortKeys = new Set<string>();
 	for (const r of rootFiles) {
 		rootSortKeys.add(normalizeMirrorSortKey(r.path, settings));
@@ -92,16 +89,26 @@ export function createCandidates(
 	for (const f of files) {
 		const p = normalizePath(f.path);
 
-		// Exclusions check
-		if (isExcludedFilePath(p, settings)) continue;
-		if (isFolderExcluded(p, settings)) continue;
+		// Calculate this file's abstract identity
+		const currentSortKey = normalizeMirrorSortKey(p, settings);
+
+		// Check if this file is part of the selected roots (Primary or Mirror)
+		const isRootGroup = rootSortKeys.has(currentSortKey);
+
+		// Exclusions Check:
+		// We ONLY skip if the file is NOT part of the Root Group.
+		// Explicitly selected roots are always included.
+		if (!isRootGroup) {
+			if (isExcludedFilePath(p, settings)) continue;
+			if (isFolderExcluded(p, settings)) continue;
+		}
 
 		let c: Candidate;
 
 		if (mirrorActive && isUnderDir(p, mirrorDir)) {
-			// It is a Mirror File (AND Mirroring is Enabled)
+			// It is a Mirror File
 			c = {
-				sortKeyPath: normalizeMirrorSortKey(p, settings),
+				sortKeyPath: currentSortKey,
 				originalPath: p,
 				sourceLabel: settings.mirrorLabel,
 			};
@@ -110,13 +117,11 @@ export function createCandidates(
 			c = {
 				sortKeyPath: p,
 				originalPath: p,
-				// Only apply the Primary Label if Mirror Mode is active.
-				// Otherwise, leave it empty so no label is printed.
 				sourceLabel: mirrorActive ? settings.primaryLabel : "",
 			};
 		}
 
-		if (rootSortKeys.has(c.sortKeyPath)) {
+		if (isRootGroup) {
 			c.isRoot = true;
 		}
 
