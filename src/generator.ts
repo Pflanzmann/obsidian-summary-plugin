@@ -102,8 +102,8 @@ export function getIncludedFiles(
 		}
 	}
 
-	// 2. Run BFS
-	const bfsResult = runBFS(app, startFiles, config);
+	// 2. Run BFS (Pass settings)
+	const bfsResult = runBFS(app, startFiles, config, settings);
 
 	// 3. Expand result with mirrors
 	const expandedStart = expandWithMirrors(app, settings, bfsResult.startFiles);
@@ -126,7 +126,8 @@ export function getIncludedFilesForFolder(
 		f.path === scanDir || f.path.startsWith(scanDir + "/")
 	);
 
-	const bfsResult = runBFS(app, startFiles, config);
+	// Pass settings
+	const bfsResult = runBFS(app, startFiles, config, settings);
 
 	const expandedStart = expandWithMirrors(app, settings, bfsResult.startFiles);
 	const expandedOthers = expandWithMirrors(app, settings, bfsResult.others);
@@ -153,7 +154,8 @@ function expandWithMirrors(app: App, settings: VaultSummarySettings, files: TFil
 function runBFS(
 	app: App,
 	roots: TFile[],
-	config: RunConfig
+	config: RunConfig,
+	settings: VaultSummarySettings
 ): { startFiles: TFile[], others: TFile[] } {
 
 	const { metadataCache, vault } = app;
@@ -197,15 +199,20 @@ function runBFS(
 
 		// B. Process Incoming
 		if (config.includeBacklinks && globalBacklinkMap) {
-			const sources = globalBacklinkMap.get(currentFile.path);
-			if (sources) {
-				for (const sourcePath of sources) {
-					const sourceFile = vault.getAbstractFileByPath(sourcePath);
-					if (sourceFile instanceof TFile && sourceFile.extension === "md") {
-						if (!processedPaths.has(sourceFile.path)) {
-							processedPaths.add(sourceFile.path);
-							collectedFilesMap.set(sourceFile.path, sourceFile);
-							queue.push({ file: sourceFile, depth: depth + 1 });
+			// NEW LOGIC: Check setting
+			const allowBacklinks = !settings.backlinksOnRootOnly || depth === 1;
+
+			if (allowBacklinks) {
+				const sources = globalBacklinkMap.get(currentFile.path);
+				if (sources) {
+					for (const sourcePath of sources) {
+						const sourceFile = vault.getAbstractFileByPath(sourcePath);
+						if (sourceFile instanceof TFile && sourceFile.extension === "md") {
+							if (!processedPaths.has(sourceFile.path)) {
+								processedPaths.add(sourceFile.path);
+								collectedFilesMap.set(sourceFile.path, sourceFile);
+								queue.push({ file: sourceFile, depth: depth + 1 });
+							}
 						}
 					}
 				}

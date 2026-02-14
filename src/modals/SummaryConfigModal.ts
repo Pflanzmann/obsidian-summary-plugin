@@ -3,7 +3,6 @@ import { RunConfig, SummaryPluginInterface } from "../types";
 import { runBFS } from "../generator/graph";
 import { resolveStartFiles, expandWithMirrors } from "../generator/mirror";
 import { FileSuggestModal, FolderSuggestModal } from "./SuggestModals";
-// Import exclusion logic
 import { isExcludedFilePath, isFolderExcluded } from "../utils";
 
 interface TreeNode {
@@ -165,8 +164,8 @@ export class SummaryConfigModal extends Modal {
 
 		const effectiveRoots = Array.from(uniqueMap.values());
 
-		// 5. Run BFS
-		const bfsResult = runBFS(this.app, effectiveRoots, this.config);
+		// 5. Run BFS (Passing plugin settings for global backlink control)
+		const bfsResult = runBFS(this.app, effectiveRoots, this.config, this.plugin.settings);
 
 		// 6. Expand Mirrors & Filter
 		// Roots are NOT filtered by exclusion (explicit inclusion)

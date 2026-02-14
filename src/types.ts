@@ -25,7 +25,7 @@ export interface VaultSummarySettings {
 	globalExcludedDirNames: string[];
 
 	// --- Mirroring Settings ---
-	enableMirroring: boolean; // <--- NEW TOGGLE
+	enableMirroring: boolean;
 	mirrorFolderPath: string;
 	primaryLabel: string;
 	mirrorLabel: string;
@@ -36,6 +36,9 @@ export interface VaultSummarySettings {
 
 	// Recursion depth
 	scanDepth: number;
+
+	// NEW: Limit backlinks traversal
+	backlinksOnRootOnly: boolean;
 
 	// Persist Mode settings
 	lastRunSettings: RunConfig;

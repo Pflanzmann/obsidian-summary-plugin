@@ -1,10 +1,10 @@
 {
-  "id": "wiki-summary-normalised",
-  "name": "Wiki Summary Normalised",
-  "version": "0.1.0",
-  "minAppVersion": "1.5.0",
-  "description": "Generates a grouped summary note from DM notes + DnDWiki entries (Bash-script equivalent).",
-  "author": "You",
-  "authorUrl": "",
-  "isDesktopOnly": false
+	"id": "wiki-summary-normalised",
+	"name": "Vault Graph Summary",
+	"version": "1.0.0",
+	"minAppVersion": "1.5.0",
+	"description": "Generates a consolidated summary file by crawling your notes. Supports outgoing links, backlinks, recursion depth, exclusion patterns, and 'Mirror' folder logic for handling Primary vs. Public note versions.",
+	"author": "Pflanzmann",
+	"authorUrl": "",
+	"isDesktopOnly": false
 }

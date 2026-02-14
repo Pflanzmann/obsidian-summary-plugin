@@ -14,6 +14,8 @@ export const DEFAULT_SETTINGS: VaultSummarySettings = {
 	excludedGlobs: [],
 	scanDepth: 1,
 
+	backlinksOnRootOnly: false, // Default to checking all levels
+
 	lastRunSettings: {
 		includeMentions: true,
 		includeBacklinks: false,
@@ -45,6 +47,21 @@ export class SummarySettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.outputFilePath)
 					.onChange(async (value) => {
 						this.plugin.settings.outputFilePath = value.trim() || DEFAULT_SETTINGS.outputFilePath;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		// --- Graph Traversal Settings ---
+		containerEl.createEl("h3", { text: "Graph Traversal" });
+
+		new Setting(containerEl)
+			.setName("Limit Backlinks to Roots")
+			.setDesc("If enabled, incoming links (backlinks) are only checked for the starting Root files. Files found deeper in the graph will not be scanned for their own backlinks.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.backlinksOnRootOnly)
+					.onChange(async (value) => {
+						this.plugin.settings.backlinksOnRootOnly = value;
 						await this.plugin.saveSettings();
 					})
 			);

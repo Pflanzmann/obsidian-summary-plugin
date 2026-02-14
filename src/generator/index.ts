@@ -44,8 +44,8 @@ export function getIncludedFiles(
 	// 1. Resolve effective start files (handle mirror <-> primary swap)
 	const startFiles = resolveStartFiles(app, settings, startFile);
 
-	// 2. Run BFS
-	const bfsResult = runBFS(app, startFiles, config);
+	// 2. Run BFS (Pass settings for backlink logic)
+	const bfsResult = runBFS(app, startFiles, config, settings);
 
 	// 3. Expand results with mirrors
 	const expandedStart = expandWithMirrors(app, settings, bfsResult.startFiles);
@@ -71,7 +71,8 @@ export function getIncludedFilesForFolder(
 		f.path === scanDir || f.path.startsWith(scanDir + "/")
 	);
 
-	const bfsResult = runBFS(app, startFiles, config);
+	// Pass settings for backlink logic
+	const bfsResult = runBFS(app, startFiles, config, settings);
 
 	const expandedStart = expandWithMirrors(app, settings, bfsResult.startFiles);
 	const expandedOthers = expandWithMirrors(app, settings, bfsResult.others);
