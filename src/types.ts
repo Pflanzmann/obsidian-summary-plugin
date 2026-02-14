@@ -1,3 +1,5 @@
+import { Plugin } from "obsidian";
+
 export interface Candidate {
 	sortKeyPath: string;
 	originalPath: string;
@@ -28,11 +30,17 @@ export interface VaultSummarySettings {
 
 	// Store history
 	recentFolders: string[];
-	recentFiles: string[]; // <--- NEW
+	recentFiles: string[];
 
 	// Recursion depth
 	scanDepth: number;
 
 	// Persist Mode settings
 	lastRunSettings: RunConfig;
+}
+
+// Interface to decouple UI from the concrete Main class
+export interface SummaryPluginInterface extends Plugin {
+	settings: VaultSummarySettings;
+	saveSettings(): Promise<void>;
 }

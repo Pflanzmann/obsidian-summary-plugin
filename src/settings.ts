@@ -1,5 +1,5 @@
-import { App, PluginSettingTab, Setting, Plugin } from "obsidian";
-import { VaultSummarySettings } from "./types";
+import { App, PluginSettingTab, Setting } from "obsidian";
+import { VaultSummarySettings, SummaryPluginInterface } from "./types";
 
 export const DEFAULT_SETTINGS: VaultSummarySettings = {
 	outputFilePath: "Vault Summary.txt",
@@ -12,21 +12,15 @@ export const DEFAULT_SETTINGS: VaultSummarySettings = {
 	excludedFilePaths: [],
 	excludedGlobs: [],
 	recentFolders: [],
-	recentFiles: [], // <--- NEW
+	recentFiles: [],
 	scanDepth: 1,
 
-	// Defaults
 	lastRunSettings: {
 		includeMentions: true,
 		includeBacklinks: false,
 		depth: 1
 	}
 };
-
-interface SummaryPluginInterface extends Plugin {
-	settings: VaultSummarySettings;
-	saveSettings(): Promise<void>;
-}
 
 export class SummarySettingTab extends PluginSettingTab {
 	plugin: SummaryPluginInterface;
@@ -92,7 +86,6 @@ export class SummarySettingTab extends PluginSettingTab {
 				text
 					.setValue(this.plugin.settings.mirrorFolderPath)
 					.onChange(async (value) => {
-						// Store raw value, empty string means disabled
 						this.plugin.settings.mirrorFolderPath = value.trim();
 						await this.plugin.saveSettings();
 					})
