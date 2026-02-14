@@ -13,6 +13,11 @@ export interface RunConfig {
 	depth: number;
 }
 
+export interface VaultSummaryHistory {
+	recentFolders: string[];
+	recentFiles: string[];
+}
+
 export interface VaultSummarySettings {
 	outputFilePath: string;
 
@@ -28,10 +33,6 @@ export interface VaultSummarySettings {
 	excludedFilePaths: string[];
 	excludedGlobs: string[];
 
-	// Store history
-	recentFolders: string[];
-	recentFiles: string[];
-
 	// Recursion depth
 	scanDepth: number;
 
@@ -42,5 +43,7 @@ export interface VaultSummarySettings {
 // Interface to decouple UI from the concrete Main class
 export interface SummaryPluginInterface extends Plugin {
 	settings: VaultSummarySettings;
+	history: VaultSummaryHistory;
 	saveSettings(): Promise<void>;
+	saveHistory(): Promise<void>;
 }

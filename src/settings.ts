@@ -11,8 +11,7 @@ export const DEFAULT_SETTINGS: VaultSummarySettings = {
 
 	excludedFilePaths: [],
 	excludedGlobs: [],
-	recentFolders: [],
-	recentFiles: [],
+	// recentFolders and recentFiles removed
 	scanDepth: 1,
 
 	lastRunSettings: {
