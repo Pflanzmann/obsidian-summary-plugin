@@ -44,15 +44,14 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 			id: "generate-vault-summary-from-links",
 			name: "Generate summary: Choose folder...",
 			callback: async () => {
-				// Pass this.history to the modal
 				new FolderSuggestModal(this.app, this.settings, this.history, (selectedFolder) => {
-					new SummaryConfigModal(this.app, this, selectedFolder, async (files, config) => {
+					// Updated callback signature with rootFiles
+					new SummaryConfigModal(this.app, this, selectedFolder, async (files, config, rootFiles) => {
 						await this.addFolderToHistory(selectedFolder.path);
 						try {
 							const folderName = selectedFolder.path.split('/').pop() || "Folder";
-							const roots = files.filter(f => f.path.startsWith(selectedFolder.path + "/"));
-
-							await generateSummaryFromFiles(this.app, this.settings, files, folderName, roots);
+							// Use explicit rootFiles from modal
+							await generateSummaryFromFiles(this.app, this.settings, files, folderName, rootFiles);
 						} catch (err: any) {
 							console.error(err);
 							new Notice(`Failed: ${err?.message ?? String(err)}`);
@@ -67,12 +66,12 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 			id: "generate-vault-summary-single-file",
 			name: "Generate summary: Choose file...",
 			callback: async () => {
-				// Pass this.history to the modal
 				new FileSuggestModal(this.app, this.settings, this.history, (file) => {
-					new SummaryConfigModal(this.app, this, file, async (files, config) => {
+					// Updated callback signature with rootFiles
+					new SummaryConfigModal(this.app, this, file, async (files, config, rootFiles) => {
 						await this.addFileToHistory(file.path);
 						try {
-							await generateSummaryFromFiles(this.app, this.settings, files, file.basename, [file]);
+							await generateSummaryFromFiles(this.app, this.settings, files, file.basename, rootFiles);
 						} catch (err: any) {
 							console.error(err);
 							new Notice(`Failed: ${err?.message ?? String(err)}`);
@@ -90,10 +89,11 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 				const activeFile = this.app.workspace.getActiveFile();
 				if (activeFile instanceof TFile && activeFile.extension === "md") {
 					if (!checking) {
-						new SummaryConfigModal(this.app, this, activeFile, async (files, config) => {
+						// Updated callback signature with rootFiles
+						new SummaryConfigModal(this.app, this, activeFile, async (files, config, rootFiles) => {
 							await this.addFileToHistory(activeFile.path);
 							try {
-								await generateSummaryFromFiles(this.app, this.settings, files, activeFile.basename, [activeFile]);
+								await generateSummaryFromFiles(this.app, this.settings, files, activeFile.basename, rootFiles);
 							} catch (err: any) {
 								console.error(err);
 								new Notice(`Failed: ${err?.message ?? String(err)}`);
@@ -107,12 +107,8 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 		});
 	}
 
-	/**
-	 * Loads history from manifestDir/history.json
-	 */
 	async loadHistory() {
 		this.history = Object.assign({}, DEFAULT_HISTORY);
-
 		const path = normalizePath(`${this.manifest.dir}/history.json`);
 		if (await this.app.vault.adapter.exists(path)) {
 			try {
@@ -125,9 +121,6 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 		}
 	}
 
-	/**
-	 * Saves history to manifestDir/history.json
-	 */
 	async saveHistory() {
 		const path = normalizePath(`${this.manifest.dir}/history.json`);
 		try {
@@ -142,7 +135,7 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 		recents.unshift(path);
 		if (recents.length > 5) recents = recents.slice(0, 5);
 		this.history.recentFolders = recents;
-		await this.saveHistory(); // Save to separate file
+		await this.saveHistory();
 	}
 
 	async addFileToHistory(path: string) {
@@ -150,7 +143,7 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 		recents.unshift(path);
 		if (recents.length > 5) recents = recents.slice(0, 5);
 		this.history.recentFiles = recents;
-		await this.saveHistory(); // Save to separate file
+		await this.saveHistory();
 	}
 
 	async saveSettings() {

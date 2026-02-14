@@ -1,6 +1,9 @@
-import { App, Modal, ButtonComponent, Setting, TFile, TFolder, setIcon, debounce } from "obsidian";
+import { App, Modal, ButtonComponent, Setting, TFile, TFolder, setIcon, debounce, Notice } from "obsidian";
 import { RunConfig, SummaryPluginInterface } from "../types";
-import { getIncludedFiles, getIncludedFilesForFolder } from "../generator";
+import { runBFS } from "../generator/graph";
+// Ensure resolveStartFiles is imported
+import { resolveStartFiles, expandWithMirrors } from "../generator/mirror";
+import { FileSuggestModal, FolderSuggestModal } from "./SuggestModals";
 
 interface TreeNode {
 	name: string;
@@ -16,22 +19,29 @@ interface TreeNode {
 export class SummaryConfigModal extends Modal {
 	plugin: SummaryPluginInterface;
 	source: TFile | TFolder;
-	onSubmit: (files: TFile[], config: RunConfig) => void;
+	onSubmit: (files: TFile[], config: RunConfig, rootFiles: TFile[]) => void;
 	config: RunConfig;
 
 	statsEl: HTMLElement;
 	treeContainerEl: HTMLElement;
 	generateBtn: ButtonComponent;
 
-	discoveredFiles: TFile[] = [];
-	treeRoot: TreeNode;
+	startFiles: TFile[] = [];
+	linkedFiles: TFile[] = [];
+
+	manuallyAddedFiles: TFile[] = [];
+	removedAutoRoots: Set<string> = new Set();
+
+	rootsTree: TreeNode;
+	linkedTree: TreeNode;
+
 	excludedPaths: Set<string> = new Set();
 
 	constructor(
 		app: App,
 		plugin: SummaryPluginInterface,
 		source: TFile | TFolder,
-		onSubmit: (files: TFile[], config: RunConfig) => void
+		onSubmit: (files: TFile[], config: RunConfig, rootFiles: TFile[]) => void
 	) {
 		super(app);
 		this.plugin = plugin;
@@ -103,33 +113,74 @@ export class SummaryConfigModal extends Modal {
 				this.plugin.settings.lastRunSettings = this.config;
 				await this.plugin.saveSettings();
 
-				const finalSelection = this.getSelectedFiles(this.treeRoot);
+				const rootsSelection = this.getSelectedFiles(this.rootsTree);
+				const linkedSelection = this.getSelectedFiles(this.linkedTree);
+
+				const allPaths = new Set<string>();
+				const finalSelection: TFile[] = [];
+
+				[...rootsSelection, ...linkedSelection].forEach(f => {
+					if (!allPaths.has(f.path)) {
+						allPaths.add(f.path);
+						finalSelection.push(f);
+					}
+				});
+
 				this.close();
-				this.onSubmit(finalSelection, this.config);
+				this.onSubmit(finalSelection, this.config, rootsSelection);
 			});
 
 		this.refreshFiles();
-
-		setTimeout(() => {
-			if (this.generateBtn && this.generateBtn.buttonEl) {
-				this.generateBtn.buttonEl.focus();
-			}
-		}, 100);
 	}
 
 	async refreshFiles() {
+		// 1. Determine Base Roots
+		let initialRoots: TFile[] = [];
+
 		if (this.source instanceof TFile) {
-			const res = getIncludedFiles(this.app, this.plugin.settings, this.source, this.config);
-			this.discoveredFiles = [...res.startFiles, ...res.others];
-		} else if (this.source instanceof TFolder) {
-			const res = getIncludedFilesForFolder(this.app, this.plugin.settings, this.source.path, this.config);
-			this.discoveredFiles = [...res.startFiles, ...res.others];
+			initialRoots = resolveStartFiles(this.app, this.plugin.settings, this.source);
+		} else {
+			const folderPath = this.source.path;
+			initialRoots = this.app.vault.getMarkdownFiles().filter(f =>
+				f.path === folderPath || f.path.startsWith(folderPath + "/")
+			);
 		}
-		this.buildTree();
+
+		// 2. Add Manually Added Files
+		// We re-resolve here just to be safe, though addFile now handles it too.
+		// This ensures if settings changed (e.g. mirror path) between adds, it updates correctly.
+		for (const manual of this.manuallyAddedFiles) {
+			const resolved = resolveStartFiles(this.app, this.plugin.settings, manual);
+			initialRoots.push(...resolved);
+		}
+
+		// 3. Deduplicate
+		const uniqueMap = new Map<string, TFile>();
+		initialRoots.forEach(f => uniqueMap.set(f.path, f));
+
+		// 4. Remove Deleted Auto-Roots
+		this.removedAutoRoots.forEach(path => uniqueMap.delete(path));
+
+		const effectiveRoots = Array.from(uniqueMap.values());
+
+		// 5. Run BFS
+		const bfsResult = runBFS(this.app, effectiveRoots, this.config);
+
+		// 6. Expand Mirrors
+		this.startFiles = expandWithMirrors(this.app, this.plugin.settings, bfsResult.startFiles);
+		this.linkedFiles = expandWithMirrors(this.app, this.plugin.settings, bfsResult.others);
+
+		// 7. Rebuild UI
+		this.buildTrees();
 		this.renderTree();
 	}
 
-	buildTree() {
+	buildTrees() {
+		this.rootsTree = this.buildSingleTreeStructure(this.startFiles);
+		this.linkedTree = this.buildSingleTreeStructure(this.linkedFiles);
+	}
+
+	buildSingleTreeStructure(files: TFile[]): TreeNode {
 		const root: TreeNode = {
 			name: "root",
 			path: "",
@@ -158,7 +209,7 @@ export class SummaryConfigModal extends Modal {
 			return getNode(pathParts.slice(1), current.children.get(name)!);
 		};
 
-		const sortedFiles = this.discoveredFiles.sort((a,b) => a.path.localeCompare(b.path));
+		const sortedFiles = files.sort((a,b) => a.path.localeCompare(b.path));
 
 		for (const file of sortedFiles) {
 			const parts = file.path.split("/");
@@ -179,8 +230,8 @@ export class SummaryConfigModal extends Modal {
 			});
 		}
 
-		this.treeRoot = root;
-		this.recalcFolderCheckStates(this.treeRoot);
+		this.recalcFolderCheckStates(root);
+		return root;
 	}
 
 	recalcFolderCheckStates(node: TreeNode) {
@@ -200,14 +251,119 @@ export class SummaryConfigModal extends Modal {
 
 	renderTree() {
 		this.treeContainerEl.empty();
-		const total = this.discoveredFiles.length;
-		const selected = this.getSelectedCount(this.treeRoot);
-		this.statsEl.setText(`${selected} / ${total} selected`);
-		this.generateBtn.setDisabled(selected === 0);
-		this.renderNode(this.treeRoot, this.treeContainerEl);
+
+		const rootsCount = this.startFiles.length;
+		const linkedCount = this.linkedFiles.length;
+		const rootsSelected = this.getSelectedCount(this.rootsTree);
+		const linkedSelected = this.getSelectedCount(this.linkedTree);
+		const totalSelected = rootsSelected + linkedSelected;
+
+		this.statsEl.setText(`${totalSelected} / ${rootsCount + linkedCount} selected`);
+		this.generateBtn.setDisabled(totalSelected === 0);
+
+		// --- Roots Section ---
+		const rootSection = this.treeContainerEl.createEl("div", { cls: "vs-tree-section" });
+
+		const headerRow = rootSection.createEl("div", { cls: "vs-tree-section-header-row" });
+		headerRow.createEl("span", { text: `Root Files`, cls: "vs-tree-section-header" });
+
+		const actionsDiv = headerRow.createEl("div", { cls: "vs-tree-actions" });
+
+		const addFileBtn = actionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add File" } });
+		setIcon(addFileBtn, "file-plus");
+		addFileBtn.onclick = () => this.addFile();
+
+		const addFolderBtn = actionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add Folder" } });
+		setIcon(addFolderBtn, "folder-plus");
+		addFolderBtn.onclick = () => this.addFolder();
+
+		if (rootsCount > 0) {
+			this.renderNode(this.rootsTree, rootSection, true);
+		} else {
+			const emptyMsg = rootSection.createEl("div", { cls: "vs-tree-empty-msg" });
+			emptyMsg.setText("No root files selected.");
+		}
+
+		// --- Separator ---
+		if (linkedCount > 0) {
+			this.treeContainerEl.createEl("div", { cls: "vs-tree-separator" });
+		}
+
+		// --- Linked Section ---
+		if (linkedCount > 0) {
+			const linkedSection = this.treeContainerEl.createEl("div", { cls: "vs-tree-section" });
+			linkedSection.createEl("div", {
+				text: `Linked Files (${linkedCount})`,
+				cls: "vs-tree-section-header"
+			});
+			this.renderNode(this.linkedTree, linkedSection, false);
+		} else if (rootsCount > 0 && (this.config.includeMentions || this.config.includeBacklinks)) {
+			const emptyMsg = this.treeContainerEl.createEl("div", { cls: "vs-tree-empty-msg" });
+			emptyMsg.setText("No additional links found.");
+		}
 	}
 
-	renderNode(node: TreeNode, container: HTMLElement) {
+	addFile() {
+		new FileSuggestModal(this.app, this.plugin.settings, this.plugin.history, (file) => {
+			// Resolve the selected file into pairs if Mirror Mode is active
+			const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
+
+			let addedCount = 0;
+			for (const f of resolvedFiles) {
+				// Remove from delete list if present
+				if (this.removedAutoRoots.has(f.path)) {
+					this.removedAutoRoots.delete(f.path);
+				}
+
+				// Add to manual list if not present
+				if (!this.manuallyAddedFiles.some(existing => existing.path === f.path)) {
+					this.manuallyAddedFiles.push(f);
+					addedCount++;
+				}
+			}
+
+			// Always refresh to show changes (even if only un-deleted)
+			this.refreshFiles();
+			if (addedCount > 1) new Notice(`Added ${addedCount} files (Primary + Mirror).`);
+		}).open();
+	}
+
+	addFolder() {
+		new FolderSuggestModal(this.app, this.plugin.settings, this.plugin.history, (folder) => {
+			const files = this.app.vault.getMarkdownFiles().filter(f => f.path.startsWith(folder.path + "/"));
+			let count = 0;
+
+			files.forEach(file => {
+				// Resolve each file in the folder
+				const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
+
+				for (const f of resolvedFiles) {
+					if (this.removedAutoRoots.has(f.path)) this.removedAutoRoots.delete(f.path);
+
+					if (!this.manuallyAddedFiles.some(mf => mf.path === f.path)) {
+						this.manuallyAddedFiles.push(f);
+						count++;
+					}
+				}
+			});
+
+			if (count > 0) {
+				new Notice(`Added ${count} files from folder.`);
+				this.refreshFiles();
+			} else {
+				new Notice("All files in folder already added.");
+			}
+		}).open();
+	}
+
+	removeFile(file: TFile) {
+		this.manuallyAddedFiles = this.manuallyAddedFiles.filter(f => f.path !== file.path);
+		this.removedAutoRoots.add(file.path);
+		this.excludedPaths.delete(file.path);
+		this.refreshFiles();
+	}
+
+	renderNode(node: TreeNode, container: HTMLElement, isRootTree: boolean) {
 		const children = Array.from(node.children.values()).sort((a, b) => {
 			if (a.isFile === b.isFile) return a.name.localeCompare(b.name);
 			return a.isFile ? 1 : -1;
@@ -215,7 +371,7 @@ export class SummaryConfigModal extends Modal {
 
 		for (const child of children) {
 			const itemEl = container.createEl("div", { cls: "vs-tree-item" });
-			if (node === this.treeRoot) {
+			if (node.path === "") {
 				itemEl.style.marginLeft = "0";
 				itemEl.style.borderLeft = "none";
 			}
@@ -244,17 +400,30 @@ export class SummaryConfigModal extends Modal {
 
 			const iconEl = rowEl.createEl("span", { cls: "vs-icon" });
 			setIcon(iconEl, child.isFile ? "file-text" : "folder");
-			rowEl.createEl("span", { cls: "vs-tree-label", text: child.name });
+
+			const labelEl = rowEl.createEl("span", { cls: "vs-tree-label", text: child.name });
+
+			if (isRootTree && child.isFile && child.file) {
+				const trashBtn = rowEl.createEl("div", { cls: "vs-node-action" });
+				setIcon(trashBtn, "trash-2");
+				trashBtn.title = "Remove from Root Files";
+				trashBtn.onclick = (e) => {
+					e.stopPropagation();
+					if (child.file) this.removeFile(child.file);
+				};
+			}
 
 			rowEl.onclick = (e) => {
-				if (e.target !== checkbox && e.target !== collapseIcon) {
-					this.toggleNode(child, !child.checked);
+				if (e.target instanceof HTMLElement &&
+					(e.target === checkbox || e.target.closest('.vs-collapse-icon') || e.target.closest('.vs-node-action'))) {
+					return;
 				}
+				this.toggleNode(child, !child.checked);
 			};
 
 			if (!child.isFile && !child.collapsed) {
 				const childContainer = itemEl.createEl("div");
-				this.renderNode(child, childContainer);
+				this.renderNode(child, childContainer, isRootTree);
 			}
 		}
 	}
@@ -272,7 +441,7 @@ export class SummaryConfigModal extends Modal {
 		propagateDown(node, state);
 
 		let curr = node.parent;
-		while (curr && curr !== this.treeRoot) {
+		while (curr) {
 			let allChildrenChecked = true;
 			for (const c of curr.children.values()) {
 				if (!c.checked) {
@@ -281,6 +450,7 @@ export class SummaryConfigModal extends Modal {
 				}
 			}
 			curr.checked = allChildrenChecked;
+			if (curr.path === "") break;
 			curr = curr.parent;
 		}
 		this.renderTree();
