@@ -4,14 +4,14 @@ import { VaultSummarySettings, SummaryPluginInterface } from "./types";
 export const DEFAULT_SETTINGS: VaultSummarySettings = {
 	outputFilePath: "Vault Summary.txt",
 	globalExcludedDirNames: ["Templates", "Meta", "Archives"],
-	mirrorFolderPath: "PublicMirror",
 
+	enableMirroring: false, // Default to disabled
+	mirrorFolderPath: "PublicMirror",
 	primaryLabel: "PRIMARY",
 	mirrorLabel: "MIRROR",
 
 	excludedFilePaths: [],
 	excludedGlobs: [],
-	// recentFolders and recentFiles removed
 	scanDepth: 1,
 
 	lastRunSettings: {
@@ -35,9 +35,10 @@ export class SummarySettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h2", { text: "Vault Summary — Settings" });
 
+		// --- General Settings ---
 		new Setting(containerEl)
 			.setName("Base Output Path")
-			.setDesc("The base filename. In Folder/File modes, the source name is appended (e.g. 'Vault Summary - FolderName.txt').")
+			.setDesc("The base filename. In Folder/File modes, the source name is appended.")
 			.addText((text) =>
 				text
 					.setPlaceholder("Vault Summary.txt")
@@ -48,48 +49,70 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Source Labels" });
+		// --- Mirroring Toggle ---
+		containerEl.createEl("h3", { text: "Mirror Mode" });
 
 		new Setting(containerEl)
-			.setName("Primary Source Name")
-			.setDesc("Label for standard files found in your vault.")
-			.addText((text) =>
-				text
-					.setPlaceholder("PRIMARY")
-					.setValue(this.plugin.settings.primaryLabel)
+			.setName("Enable Primary & Mirror Logic")
+			.setDesc("If enabled, the plugin will look for a 'Mirror' folder to distinguish between internal (Primary) and public (Mirror) versions of your notes.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.enableMirroring)
 					.onChange(async (value) => {
-						this.plugin.settings.primaryLabel = value.trim() || "PRIMARY";
+						this.plugin.settings.enableMirroring = value;
 						await this.plugin.saveSettings();
+						// Re-render the settings to show/hide the sub-settings
+						this.display();
 					})
 			);
 
-		new Setting(containerEl)
-			.setName("Mirror/Secondary Source Name")
-			.setDesc("Label for files found inside the Mirror Folder.")
-			.addText((text) =>
-				text
-					.setPlaceholder("MIRROR")
-					.setValue(this.plugin.settings.mirrorLabel)
-					.onChange(async (value) => {
-						this.plugin.settings.mirrorLabel = value.trim() || "MIRROR";
-						await this.plugin.saveSettings();
-					})
-			);
+		// --- Conditional Mirror Settings ---
+		if (this.plugin.settings.enableMirroring) {
+			const mirrorContainer = containerEl.createEl("div", { cls: "vs-mirror-settings-container" });
+			mirrorContainer.style.borderLeft = "2px solid var(--text-muted)";
+			mirrorContainer.style.paddingLeft = "12px";
+			mirrorContainer.style.marginLeft = "4px";
 
-		containerEl.createEl("h3", { text: "Mirror Configuration" });
+			new Setting(mirrorContainer)
+				.setName("Mirror folder path")
+				.setDesc("The folder containing the secondary/mirror versions of notes.")
+				.addText((text) =>
+					text
+						.setValue(this.plugin.settings.mirrorFolderPath)
+						.onChange(async (value) => {
+							this.plugin.settings.mirrorFolderPath = value.trim();
+							await this.plugin.saveSettings();
+						})
+				);
 
-		new Setting(containerEl)
-			.setName("Mirror folder path")
-			.setDesc("The folder containing the secondary/mirror versions of notes. Leave empty to disable mirroring.")
-			.addText((text) =>
-				text
-					.setValue(this.plugin.settings.mirrorFolderPath)
-					.onChange(async (value) => {
-						this.plugin.settings.mirrorFolderPath = value.trim();
-						await this.plugin.saveSettings();
-					})
-			);
+			new Setting(mirrorContainer)
+				.setName("Primary Source Name")
+				.setDesc("Label in the summary for files OUTSIDE the mirror folder.")
+				.addText((text) =>
+					text
+						.setPlaceholder("PRIMARY")
+						.setValue(this.plugin.settings.primaryLabel)
+						.onChange(async (value) => {
+							this.plugin.settings.primaryLabel = value.trim() || "PRIMARY";
+							await this.plugin.saveSettings();
+						})
+				);
 
+			new Setting(mirrorContainer)
+				.setName("Mirror Source Name")
+				.setDesc("Label in the summary for files INSIDE the mirror folder.")
+				.addText((text) =>
+					text
+						.setPlaceholder("MIRROR")
+						.setValue(this.plugin.settings.mirrorLabel)
+						.onChange(async (value) => {
+							this.plugin.settings.mirrorLabel = value.trim() || "MIRROR";
+							await this.plugin.saveSettings();
+						})
+				);
+		}
+
+		// --- Exclusion Settings ---
 		containerEl.createEl("h3", { text: "Exclusions" });
 
 		new Setting(containerEl)

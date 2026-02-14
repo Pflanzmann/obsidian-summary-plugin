@@ -11,9 +11,6 @@ export function posixDirname(p: string): string {
 	return s.slice(0, idx);
 }
 
-/**
- * Generates a filename based on the base path defined in settings + a specific suffix.
- */
 export function generateDynamicPath(basePath: string, suffix: string | null): string {
 	if (!suffix) return normalizePath(basePath);
 
@@ -32,11 +29,14 @@ export function generateDynamicPath(basePath: string, suffix: string | null): st
 
 /**
  * Normalizes the path for sorting.
- * If Mirror is disabled (empty path), simply returns the original path.
+ * If Mirror is disabled, simply returns the original path.
  */
 export function normalizeMirrorSortKey(originalPath: string, settings: VaultSummarySettings): string {
+	// Check Toggle
+	if (!settings.enableMirroring) return originalPath;
+
 	const mirrorDir = settings.mirrorFolderPath.trim();
-	if (!mirrorDir) return originalPath; // Mirror disabled
+	if (!mirrorDir) return originalPath;
 
 	const prefix = mirrorDir.replace(/\/+$/, "") + "/";
 	return originalPath.startsWith(prefix)
@@ -52,12 +52,10 @@ export function isUnderDir(filePath: string, dirName: string): boolean {
 	return fp === dn || fp.startsWith(dn + "/");
 }
 
-/**
- * Checks if a file should be excluded based on the folder list.
- */
 export function isFolderExcluded(filePath: string, settings: VaultSummarySettings): boolean {
 	const normalizedFile = normalizePath(filePath);
 	const mirrorDir = settings.mirrorFolderPath.trim();
+	const mirrorActive = settings.enableMirroring && mirrorDir.length > 0;
 
 	for (const excludedDir of settings.globalExcludedDirNames) {
 		const normalizedExclude = normalizePath(excludedDir);
@@ -69,7 +67,7 @@ export function isFolderExcluded(filePath: string, settings: VaultSummarySetting
 		}
 
 		// 2. Mirror Relative Match (Only if mirror is active)
-		if (mirrorDir && isUnderDir(normalizedFile, mirrorDir)) {
+		if (mirrorActive && isUnderDir(normalizedFile, mirrorDir)) {
 			const mirrorPrefix = mirrorDir.replace(/\/+$/, "") + "/";
 
 			if (normalizedFile.startsWith(mirrorPrefix)) {

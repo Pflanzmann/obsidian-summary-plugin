@@ -23,9 +23,10 @@ export interface VaultSummarySettings {
 
 	// Global / Logic settings
 	globalExcludedDirNames: string[];
-	mirrorFolderPath: string;
 
-	// Custom Labels
+	// --- Mirroring Settings ---
+	enableMirroring: boolean; // <--- NEW TOGGLE
+	mirrorFolderPath: string;
 	primaryLabel: string;
 	mirrorLabel: string;
 
@@ -40,7 +41,6 @@ export interface VaultSummarySettings {
 	lastRunSettings: RunConfig;
 }
 
-// Interface to decouple UI from the concrete Main class
 export interface SummaryPluginInterface extends Plugin {
 	settings: VaultSummarySettings;
 	history: VaultSummaryHistory;
