@@ -30,6 +30,7 @@ export class SummaryConfigModal extends Modal {
 	linkedFiles: TFile[] = [];
 
 	manuallyAddedFiles: TFile[] = [];
+	manuallyAddedLinkedFiles: TFile[] = [];
 	removedAutoRoots: Set<string> = new Set();
 
 	rootsTree: TreeNode;
@@ -171,9 +172,34 @@ export class SummaryConfigModal extends Modal {
 		// Roots are NOT filtered by exclusion (explicit inclusion)
 		this.startFiles = expandWithMirrors(this.app, this.plugin.settings, bfsResult.startFiles);
 
-		// Linked files ARE filtered by exclusion
-		const rawLinked = expandWithMirrors(this.app, this.plugin.settings, bfsResult.others);
-		this.linkedFiles = rawLinked.filter(f => {
+		// Initialize linked files
+		let rawLinked = expandWithMirrors(this.app, this.plugin.settings, bfsResult.others);
+
+		// Process manually added linked files
+		const manualLinkedExpanded = new Set<string>();
+		for (const manual of this.manuallyAddedLinkedFiles) {
+			const resolved = resolveStartFiles(this.app, this.plugin.settings, manual);
+			const expanded = expandWithMirrors(this.app, this.plugin.settings, resolved);
+			for (const f of expanded) {
+				manualLinkedExpanded.add(f.path);
+				rawLinked.push(f);
+			}
+		}
+
+		// Deduplicate and filter out files that are already part of startFiles
+		const startPaths = new Set(this.startFiles.map(f => f.path));
+		const uniqueLinked = new Map<string, TFile>();
+
+		for (const f of rawLinked) {
+			if (!startPaths.has(f.path)) {
+				uniqueLinked.set(f.path, f);
+			}
+		}
+
+		this.linkedFiles = Array.from(uniqueLinked.values()).filter(f => {
+			// Bypass exclusions for manually added linked files
+			if (manualLinkedExpanded.has(f.path)) return true;
+
 			if (isExcludedFilePath(f.path, this.plugin.settings)) return false;
 			if (isFolderExcluded(f.path, this.plugin.settings)) return false;
 			return true;
@@ -293,22 +319,39 @@ export class SummaryConfigModal extends Modal {
 			emptyMsg.setText("No root files selected.");
 		}
 
-		// --- Separator ---
-		if (linkedCount > 0) {
-			this.treeContainerEl.createEl("div", { cls: "vs-tree-separator" });
-		}
-
 		// --- Linked Section ---
-		if (linkedCount > 0) {
+		const showLinkedSection = linkedCount > 0 || rootsCount > 0 || this.manuallyAddedLinkedFiles.length > 0;
+
+		if (showLinkedSection) {
+			// Draw separator if there's a section above it
+			if (rootsCount > 0) {
+				this.treeContainerEl.createEl("div", { cls: "vs-tree-separator" });
+			}
+
 			const linkedSection = this.treeContainerEl.createEl("div", { cls: "vs-tree-section" });
-			linkedSection.createEl("div", {
+
+			const linkedHeaderRow = linkedSection.createEl("div", { cls: "vs-tree-section-header-row" });
+			linkedHeaderRow.createEl("span", {
 				text: `Linked Files (${linkedCount})`,
 				cls: "vs-tree-section-header"
 			});
-			this.renderNode(this.linkedTree, linkedSection, false);
-		} else if (rootsCount > 0 && (this.config.includeMentions || this.config.includeBacklinks)) {
-			const emptyMsg = this.treeContainerEl.createEl("div", { cls: "vs-tree-empty-msg" });
-			emptyMsg.setText("No additional links found.");
+
+			const linkedActionsDiv = linkedHeaderRow.createEl("div", { cls: "vs-tree-actions" });
+
+			const addLinkedFileBtn = linkedActionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add File" } });
+			setIcon(addLinkedFileBtn, "file-plus");
+			addLinkedFileBtn.onclick = () => this.addLinkedFile();
+
+			const addLinkedFolderBtn = linkedActionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add Folder" } });
+			setIcon(addLinkedFolderBtn, "folder-plus");
+			addLinkedFolderBtn.onclick = () => this.addLinkedFolder();
+
+			if (linkedCount > 0) {
+				this.renderNode(this.linkedTree, linkedSection, false);
+			} else {
+				const emptyMsg = linkedSection.createEl("div", { cls: "vs-tree-empty-msg" });
+				emptyMsg.setText("No additional links found.");
+			}
 		}
 	}
 
@@ -358,6 +401,51 @@ export class SummaryConfigModal extends Modal {
 		this.refreshFiles();
 	}
 
+	addLinkedFile() {
+		new FileSuggestModal(this.app, this.plugin.settings, this.plugin.history, (file) => {
+			const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
+			let addedCount = 0;
+			for (const f of resolvedFiles) {
+				this.excludedPaths.delete(f.path);
+				if (!this.manuallyAddedLinkedFiles.some(existing => existing.path === f.path)) {
+					this.manuallyAddedLinkedFiles.push(f);
+					addedCount++;
+				}
+			}
+			this.refreshFiles();
+			if (addedCount > 1) new Notice(`Added ${addedCount} files (Primary + Mirror) to Linked Files.`);
+		}).open();
+	}
+
+	addLinkedFolder() {
+		new FolderSuggestModal(this.app, this.plugin.settings, this.plugin.history, (folder) => {
+			const files = this.app.vault.getMarkdownFiles().filter(f => f.path.startsWith(folder.path + "/"));
+			let count = 0;
+			files.forEach(file => {
+				const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
+				for (const f of resolvedFiles) {
+					this.excludedPaths.delete(f.path);
+					if (!this.manuallyAddedLinkedFiles.some(mf => mf.path === f.path)) {
+						this.manuallyAddedLinkedFiles.push(f);
+						count++;
+					}
+				}
+			});
+			if (count > 0) {
+				new Notice(`Added ${count} files from folder to Linked Files.`);
+				this.refreshFiles();
+			} else {
+				new Notice("All files in folder already added.");
+			}
+		}).open();
+	}
+
+	removeLinkedFile(file: TFile) {
+		this.manuallyAddedLinkedFiles = this.manuallyAddedLinkedFiles.filter(f => f.path !== file.path);
+		this.excludedPaths.delete(file.path);
+		this.refreshFiles();
+	}
+
 	renderNode(node: TreeNode, container: HTMLElement, isRootTree: boolean) {
 		const children = Array.from(node.children.values()).sort((a, b) => {
 			if (a.isFile === b.isFile) return a.name.localeCompare(b.name);
@@ -398,13 +486,22 @@ export class SummaryConfigModal extends Modal {
 
 			const labelEl = rowEl.createEl("span", { cls: "vs-tree-label", text: child.name });
 
-			if (isRootTree && child.isFile && child.file) {
+			const isManualLinked = !isRootTree && child.isFile && child.file && this.manuallyAddedLinkedFiles.some(f => f.path === child.file!.path);
+
+			// Show a trash button on root files or manually added linked files
+			if ((isRootTree || isManualLinked) && child.isFile && child.file) {
 				const trashBtn = rowEl.createEl("div", { cls: "vs-node-action" });
 				setIcon(trashBtn, "trash-2");
-				trashBtn.title = "Remove from Root Files";
+				trashBtn.title = isRootTree ? "Remove from Root Files" : "Remove from Linked Files";
 				trashBtn.onclick = (e) => {
 					e.stopPropagation();
-					if (child.file) this.removeFile(child.file);
+					if (child.file) {
+						if (isRootTree) {
+							this.removeFile(child.file);
+						} else {
+							this.removeLinkedFile(child.file);
+						}
+					}
 				};
 			}
 
