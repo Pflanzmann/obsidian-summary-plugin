@@ -1,4 +1,4 @@
-import { App, Modal, ButtonComponent, Setting, TFile, TFolder, setIcon, debounce, Notice } from "obsidian";
+import { App, Modal, ButtonComponent, Setting, TFile, TFolder, TAbstractFile, setIcon, debounce, Notice } from "obsidian";
 import { RunConfig, SummaryPluginInterface } from "../types";
 import { runBFS } from "../generator/graph";
 import { resolveStartFiles, expandWithMirrors } from "../generator/mirror";
@@ -18,7 +18,7 @@ interface TreeNode {
 
 export class SummaryConfigModal extends Modal {
 	plugin: SummaryPluginInterface;
-	source: TFile | TFolder;
+	source: TFile | TFolder | TAbstractFile[];
 	onSubmit: (files: TFile[], config: RunConfig, rootFiles: TFile[]) => void;
 	config: RunConfig;
 
@@ -41,7 +41,7 @@ export class SummaryConfigModal extends Modal {
 	constructor(
 		app: App,
 		plugin: SummaryPluginInterface,
-		source: TFile | TFolder,
+		source: TFile | TFolder | TAbstractFile[],
 		onSubmit: (files: TFile[], config: RunConfig, rootFiles: TFile[]) => void
 	) {
 		super(app);
@@ -55,8 +55,19 @@ export class SummaryConfigModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		const typeLabel = this.source instanceof TFolder ? "Folder" : "File";
-		const name = this.source instanceof TFile ? this.source.basename : this.source.name;
+		let typeLabel = "Unknown";
+		let name = "Selection";
+
+		if (Array.isArray(this.source)) {
+			typeLabel = "Multiple Items";
+			name = `${this.source.length} selected items`;
+		} else if (this.source instanceof TFolder) {
+			typeLabel = "Folder";
+			name = this.source.name;
+		} else if (this.source instanceof TFile) {
+			typeLabel = "File";
+			name = this.source.basename;
+		}
 
 		contentEl.createEl("h2", { text: `Generate Summary (${typeLabel})` });
 		contentEl.createEl("p", { text: `Source: ${name}`, cls: "setting-item-description" });
@@ -141,13 +152,23 @@ export class SummaryConfigModal extends Modal {
 		// 1. Determine Base Roots
 		let initialRoots: TFile[] = [];
 
-		if (this.source instanceof TFile) {
-			initialRoots = resolveStartFiles(this.app, this.plugin.settings, this.source);
+		const addSourceToRoots = (src: TAbstractFile) => {
+			if (src instanceof TFile && src.extension === "md") {
+				const resolved = resolveStartFiles(this.app, this.plugin.settings, src);
+				initialRoots.push(...resolved);
+			} else if (src instanceof TFolder) {
+				const folderPath = src.path;
+				const mdFiles = this.app.vault.getMarkdownFiles().filter(f =>
+					f.path === folderPath || f.path.startsWith(folderPath + "/")
+				);
+				initialRoots.push(...mdFiles);
+			}
+		};
+
+		if (Array.isArray(this.source)) {
+			this.source.forEach(addSourceToRoots);
 		} else {
-			const folderPath = this.source.path;
-			initialRoots = this.app.vault.getMarkdownFiles().filter(f =>
-				f.path === folderPath || f.path.startsWith(folderPath + "/")
-			);
+			addSourceToRoots(this.source);
 		}
 
 		// 2. Add Manually Added Files

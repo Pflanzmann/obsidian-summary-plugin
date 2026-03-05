@@ -1,4 +1,4 @@
-import { App, Notice, Plugin, TFile, normalizePath } from "obsidian";
+import { App, Notice, Plugin, TFile, TFolder, TAbstractFile, normalizePath } from "obsidian";
 import { VaultSummarySettings, VaultSummaryHistory, SummaryPluginInterface } from "./types";
 import { DEFAULT_SETTINGS, SummarySettingTab } from "./settings";
 import { generateSummary, generateSummaryFromFiles } from "./generator";
@@ -105,6 +105,58 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 				return false;
 			},
 		});
+
+		// --- NEW: Context Menu (Single File/Folder) ---
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file) => {
+				// We only care about folders or markdown files
+				if (file instanceof TFolder || (file instanceof TFile && file.extension === "md")) {
+					menu.addItem((item) => {
+						item
+							.setTitle("Generate summary")
+							.setIcon("file-text")
+							.onClick(() => {
+								new SummaryConfigModal(this.app, this, file, async (files, config, rootFiles) => {
+									if (file instanceof TFile) await this.addFileToHistory(file.path);
+									if (file instanceof TFolder) await this.addFolderToHistory(file.path);
+									try {
+										const sourceName = file instanceof TFile ? file.basename : file.name;
+										await generateSummaryFromFiles(this.app, this.settings, files, sourceName, rootFiles);
+									} catch (err: any) {
+										console.error(err);
+										new Notice(`Failed: ${err?.message ?? String(err)}`);
+									}
+								}).open();
+							});
+					});
+				}
+			})
+		);
+
+		// --- NEW: Context Menu (Multiple Selected Files/Folders) ---
+		this.registerEvent(
+			this.app.workspace.on("files-menu", (menu, files) => {
+				// Ensure at least one valid markdown file or folder is in the selection
+				const hasValidItem = files.some(f => f instanceof TFolder || (f instanceof TFile && f.extension === "md"));
+				if (!hasValidItem) return;
+
+				menu.addItem((item) => {
+					item
+						.setTitle("Generate summary")
+						.setIcon("file-text")
+						.onClick(() => {
+							new SummaryConfigModal(this.app, this, files, async (outFiles, config, rootFiles) => {
+								try {
+									await generateSummaryFromFiles(this.app, this.settings, outFiles, "Multiple Selection", rootFiles);
+								} catch (err: any) {
+									console.error(err);
+									new Notice(`Failed: ${err?.message ?? String(err)}`);
+								}
+							}).open();
+						});
+				});
+			})
+		);
 	}
 
 	async loadHistory() {
