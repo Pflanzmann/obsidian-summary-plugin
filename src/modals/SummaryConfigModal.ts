@@ -1,4 +1,4 @@
-import { App, Modal, ButtonComponent, Setting, TFile, TFolder, TAbstractFile, setIcon, debounce, Notice } from "obsidian";
+import { App, Modal, ButtonComponent, Setting, TFile, TFolder, TAbstractFile, setIcon, debounce, Notice, normalizePath } from "obsidian";
 import { RunConfig, SummaryPluginInterface } from "../types";
 import { runBFS } from "../generator/graph";
 import { resolveStartFiles, expandWithMirrors } from "../generator/mirror";
@@ -31,7 +31,10 @@ export class SummaryConfigModal extends Modal {
 
 	manuallyAddedFiles: TFile[] = [];
 	manuallyAddedLinkedFiles: TFile[] = [];
-	removedAutoRoots: Set<string> = new Set();
+
+	// This set tracks files explicitly removed by the user.
+	// We use it to filter both BFS roots and expanded mirrors.
+	removedPaths: Set<string> = new Set();
 
 	rootsTree: TreeNode;
 	linkedTree: TreeNode;
@@ -148,12 +151,26 @@ export class SummaryConfigModal extends Modal {
 		});
 	}
 
+	/**
+	 * Helper to expand files with mirrors, but crucially filter out
+	 * any files that have been explicitly removed by the user.
+	 */
+	expandAndFilterMirrors(files: TFile[]): TFile[] {
+		// 1. Run standard expansion
+		const expanded = expandWithMirrors(this.app, this.plugin.settings, files);
+
+		// 2. Filter out anything in the removedPaths set
+		if (this.removedPaths.size === 0) return expanded;
+		return expanded.filter(f => !this.removedPaths.has(normalizePath(f.path)));
+	}
+
 	async refreshFiles() {
 		// 1. Determine Base Roots
 		let initialRoots: TFile[] = [];
 
 		const addSourceToRoots = (src: TAbstractFile) => {
 			if (src instanceof TFile && src.extension === "md") {
+				// We keep resolveStartFiles here because adding usually implies adding both
 				const resolved = resolveStartFiles(this.app, this.plugin.settings, src);
 				initialRoots.push(...resolved);
 			} else if (src instanceof TFolder) {
@@ -174,55 +191,71 @@ export class SummaryConfigModal extends Modal {
 			addSourceToRoots(this.source);
 		}
 
-		// 2. Add Manually Added Files
+		// 2. Add Manually Added Files (Roots)
+		// Again, keeping resolveStartFiles for adding
 		for (const manual of this.manuallyAddedFiles) {
 			const resolved = resolveStartFiles(this.app, this.plugin.settings, manual);
 			initialRoots.push(...resolved);
 		}
 
-		// 3. Deduplicate
+		// 3. Deduplicate and filter BFS starts by removedPaths
 		const uniqueMap = new Map<string, TFile>();
-		initialRoots.forEach(f => uniqueMap.set(f.path, f));
-
-		// 4. Remove Deleted Auto-Roots
-		this.removedAutoRoots.forEach(path => uniqueMap.delete(path));
+		initialRoots.forEach(f => {
+			const normPath = normalizePath(f.path);
+			if (!this.removedPaths.has(normPath)) {
+				uniqueMap.set(normPath, f);
+			}
+		});
 
 		const effectiveRoots = Array.from(uniqueMap.values());
 
-		// 5. Run BFS (Passing plugin settings for global backlink control)
+		// 4. Run BFS (Passing plugin settings for global backlink control)
+		// BFS will only run on roots not explicitly removed.
 		const bfsResult = runBFS(this.app, effectiveRoots, this.config, this.plugin.settings);
 
-		// 6. Expand Mirrors & Filter
-		// Roots are NOT filtered by exclusion (explicit inclusion)
-		this.startFiles = expandWithMirrors(this.app, this.plugin.settings, bfsResult.startFiles);
+		// 5. Expand Mirrors & Filter both trees
+		// CRITICAL CHANGE: We use the helper that filtering removed files.
 
-		// Initialize linked files
+		// Roots tree expansion (explicit inclusion)
+		this.startFiles = this.expandAndFilterMirrors(bfsResult.startFiles);
+
+		// Linked tree expansion
 		let rawLinked = expandWithMirrors(this.app, this.plugin.settings, bfsResult.others);
 
 		// Process manually added linked files
 		const manualLinkedExpanded = new Set<string>();
 		for (const manual of this.manuallyAddedLinkedFiles) {
+			// Keeping resolveStartFiles for "add" logic
 			const resolved = resolveStartFiles(this.app, this.plugin.settings, manual);
-			const expanded = expandWithMirrors(this.app, this.plugin.settings, resolved);
+			// We expand, then filter manual links too
+			const expanded = this.expandAndFilterMirrors(resolved);
 			for (const f of expanded) {
-				manualLinkedExpanded.add(f.path);
+				manualLinkedExpanded.add(normalizePath(f.path));
 				rawLinked.push(f);
 			}
 		}
 
-		// Deduplicate and filter out files that are already part of startFiles
-		const startPaths = new Set(this.startFiles.map(f => f.path));
+		// Deduplicate, filter out startFiles, and apply exclusions
+		const startPaths = new Set(this.startFiles.map(f => normalizePath(f.path)));
 		const uniqueLinked = new Map<string, TFile>();
 
 		for (const f of rawLinked) {
-			if (!startPaths.has(f.path)) {
-				uniqueLinked.set(f.path, f);
+			const normPath = normalizePath(f.path);
+			if (!startPaths.has(normPath)) {
+				uniqueLinked.set(normPath, f);
 			}
 		}
 
+		// Final Linked Tree population with exclusion check
+		// CRITICAL: Filter again by removedPaths, just in case manual link logic put them back.
 		this.linkedFiles = Array.from(uniqueLinked.values()).filter(f => {
+			const normPath = normalizePath(f.path);
+
+			// Check if removed first
+			if (this.removedPaths.has(normPath)) return false;
+
 			// Bypass exclusions for manually added linked files
-			if (manualLinkedExpanded.has(f.path)) return true;
+			if (manualLinkedExpanded.has(normPath)) return true;
 
 			if (isExcludedFilePath(f.path, this.plugin.settings)) return false;
 			if (isFolderExcluded(f.path, this.plugin.settings)) return false;
@@ -275,7 +308,7 @@ export class SummaryConfigModal extends Modal {
 			const fileName = parts.pop()!;
 			const folderNode = getNode(parts, root);
 			const filePath = file.path;
-			const isChecked = !this.excludedPaths.has(filePath);
+			const isChecked = !this.excludedPaths.has(normalizePath(filePath));
 
 			folderNode.children.set(fileName, {
 				name: fileName,
@@ -384,8 +417,11 @@ export class SummaryConfigModal extends Modal {
 			const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
 			let addedCount = 0;
 			for (const f of resolvedFiles) {
-				if (this.removedAutoRoots.has(f.path)) this.removedAutoRoots.delete(f.path);
-				if (!this.manuallyAddedFiles.some(existing => existing.path === f.path)) {
+				const normPath = normalizePath(f.path);
+				// Un-remove if previously removed
+				if (this.removedPaths.has(normPath)) this.removedPaths.delete(normPath);
+
+				if (!this.manuallyAddedFiles.some(existing => normalizePath(existing.path) === normPath)) {
 					this.manuallyAddedFiles.push(f);
 					addedCount++;
 				}
@@ -402,8 +438,11 @@ export class SummaryConfigModal extends Modal {
 			files.forEach(file => {
 				const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
 				for (const f of resolvedFiles) {
-					if (this.removedAutoRoots.has(f.path)) this.removedAutoRoots.delete(f.path);
-					if (!this.manuallyAddedFiles.some(mf => mf.path === f.path)) {
+					const normPath = normalizePath(f.path);
+					// Un-remove if previously removed
+					if (this.removedPaths.has(normPath)) this.removedPaths.delete(normPath);
+
+					if (!this.manuallyAddedFiles.some(mf => normalizePath(mf.path) === normPath)) {
 						this.manuallyAddedFiles.push(f);
 						count++;
 					}
@@ -419,9 +458,17 @@ export class SummaryConfigModal extends Modal {
 	}
 
 	removeFile(file: TFile) {
-		this.manuallyAddedFiles = this.manuallyAddedFiles.filter(f => f.path !== file.path);
-		this.removedAutoRoots.add(file.path);
-		this.excludedPaths.delete(file.path);
+		const normPath = normalizePath(file.path);
+		// 1. Remove ONLY the specific file from the manual list
+		this.manuallyAddedFiles = this.manuallyAddedFiles.filter(f => normalizePath(f.path) !== normPath);
+
+		// 2. Add ONLY the specific file to the removedPaths set
+		this.removedPaths.add(normPath);
+
+		// 3. Clear existing exclusion state for this specific file
+		this.excludedPaths.delete(normPath);
+
+		// 4. Trigger a refresh of the BFS and UI
 		this.refreshFiles();
 	}
 
@@ -430,8 +477,12 @@ export class SummaryConfigModal extends Modal {
 			const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
 			let addedCount = 0;
 			for (const f of resolvedFiles) {
-				this.excludedPaths.delete(f.path);
-				if (!this.manuallyAddedLinkedFiles.some(existing => existing.path === f.path)) {
+				const normPath = normalizePath(f.path);
+				// Clear removal/exclusion state
+				this.removedPaths.delete(normPath);
+				this.excludedPaths.delete(normPath);
+
+				if (!this.manuallyAddedLinkedFiles.some(existing => normalizePath(existing.path) === normPath)) {
 					this.manuallyAddedLinkedFiles.push(f);
 					addedCount++;
 				}
@@ -448,8 +499,12 @@ export class SummaryConfigModal extends Modal {
 			files.forEach(file => {
 				const resolvedFiles = resolveStartFiles(this.app, this.plugin.settings, file);
 				for (const f of resolvedFiles) {
-					this.excludedPaths.delete(f.path);
-					if (!this.manuallyAddedLinkedFiles.some(mf => mf.path === f.path)) {
+					const normPath = normalizePath(f.path);
+					// Clear removal/exclusion state
+					this.removedPaths.delete(normPath);
+					this.excludedPaths.delete(normPath);
+
+					if (!this.manuallyAddedLinkedFiles.some(mf => normalizePath(mf.path) === normPath)) {
 						this.manuallyAddedLinkedFiles.push(f);
 						count++;
 					}
@@ -465,8 +520,17 @@ export class SummaryConfigModal extends Modal {
 	}
 
 	removeLinkedFile(file: TFile) {
-		this.manuallyAddedLinkedFiles = this.manuallyAddedLinkedFiles.filter(f => f.path !== file.path);
-		this.excludedPaths.delete(file.path);
+		const normPath = normalizePath(file.path);
+		// 1. Remove ONLY the specific file from the manual list
+		this.manuallyAddedLinkedFiles = this.manuallyAddedLinkedFiles.filter(f => normalizePath(f.path) !== normPath);
+
+		// 2. Add to removedPaths so it stays out
+		this.removedPaths.add(normPath);
+
+		// 3. Clear existing exclusion state for this specific file
+		this.excludedPaths.delete(normPath);
+
+		// 4. Trigger a refresh
 		this.refreshFiles();
 	}
 
@@ -549,8 +613,8 @@ export class SummaryConfigModal extends Modal {
 		const propagateDown = (n: TreeNode, s: boolean) => {
 			n.checked = s;
 			if (n.isFile) {
-				if (s) this.excludedPaths.delete(n.path);
-				else this.excludedPaths.add(n.path);
+				if (s) this.excludedPaths.delete(normalizePath(n.path));
+				else this.excludedPaths.add(normalizePath(n.path));
 			}
 			for (const c of n.children.values()) propagateDown(c, s);
 		};
