@@ -161,7 +161,10 @@ export class SummaryConfigModal extends Modal {
 				const mdFiles = this.app.vault.getMarkdownFiles().filter(f =>
 					f.path === folderPath || f.path.startsWith(folderPath + "/")
 				);
-				initialRoots.push(...mdFiles);
+				for (const md of mdFiles) {
+					const resolved = resolveStartFiles(this.app, this.plugin.settings, md);
+					initialRoots.push(...resolved);
+				}
 			}
 		};
 

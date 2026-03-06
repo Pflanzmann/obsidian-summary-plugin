@@ -10,24 +10,13 @@ export function resolveStartFiles(
 	// 1. Check Toggle
 	if (!settings.enableMirroring) return [startFile];
 
-	const { vault } = app;
 	const startFiles: TFile[] = [startFile];
-	const mirrorDir = settings.mirrorFolderPath.trim();
 
-	if (!mirrorDir) return startFiles;
-
-	if (isUnderDir(startFile.path, mirrorDir)) {
-		const mirrorPrefix = mirrorDir.replace(/\/+$/, "") + "/";
-		if (startFile.path.startsWith(mirrorPrefix)) {
-			const primaryPath = startFile.path.slice(mirrorPrefix.length);
-			const primaryFile = vault.getAbstractFileByPath(primaryPath);
-			if (primaryFile instanceof TFile && primaryFile.extension === "md") {
-				return [primaryFile];
-			}
-		}
-	} else {
-		const mirror = findMirrorFile(app, startFile, settings);
-		if (mirror) startFiles.push(mirror);
+	// findMirrorFile natively handles finding the counterpart
+	// for BOTH Primary->Mirror AND Mirror->Primary
+	const counterpart = findMirrorFile(app, startFile, settings);
+	if (counterpart) {
+		startFiles.push(counterpart);
 	}
 
 	return startFiles;
