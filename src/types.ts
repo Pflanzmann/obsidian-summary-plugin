@@ -34,10 +34,14 @@ export interface VaultSummarySettings {
 	excludedFilePaths: string[];
 	excludedGlobs: string[];
 
+	// --- New: Always Include Settings ---
+	alwaysIncludePathsAsRoots: string[];
+	alwaysIncludePathsAsLinks: string[];
+
 	// Recursion depth
 	scanDepth: number;
 
-	// NEW: Limit backlinks traversal
+	// Limit backlinks traversal
 	backlinksOnRootOnly: boolean;
 
 	// Persist Mode settings

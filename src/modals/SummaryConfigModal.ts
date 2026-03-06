@@ -32,8 +32,6 @@ export class SummaryConfigModal extends Modal {
 	manuallyAddedFiles: TFile[] = [];
 	manuallyAddedLinkedFiles: TFile[] = [];
 
-	// This set tracks files explicitly removed by the user.
-	// We use it to filter both BFS roots and expanded mirrors.
 	removedPaths: Set<string> = new Set();
 
 	rootsTree: TreeNode;
@@ -151,10 +149,6 @@ export class SummaryConfigModal extends Modal {
 		});
 	}
 
-	/**
-	 * Helper to expand files with mirrors, but crucially filter out
-	 * any files that have been explicitly removed by the user.
-	 */
 	expandAndFilterMirrors(files: TFile[]): TFile[] {
 		// 1. Run standard expansion
 		const expanded = expandWithMirrors(this.app, this.plugin.settings, files);
@@ -170,7 +164,6 @@ export class SummaryConfigModal extends Modal {
 
 		const addSourceToRoots = (src: TAbstractFile) => {
 			if (src instanceof TFile && src.extension === "md") {
-				// We keep resolveStartFiles here because adding usually implies adding both
 				const resolved = resolveStartFiles(this.app, this.plugin.settings, src);
 				initialRoots.push(...resolved);
 			} else if (src instanceof TFolder) {
@@ -191,8 +184,16 @@ export class SummaryConfigModal extends Modal {
 			addSourceToRoots(this.source);
 		}
 
+		// --- New: Apply "Always Include as Roots" Setting ---
+		for (const path of this.plugin.settings.alwaysIncludePathsAsRoots) {
+			const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+			if (file instanceof TFile && file.extension === "md") {
+				const resolved = resolveStartFiles(this.app, this.plugin.settings, file);
+				initialRoots.push(...resolved);
+			}
+		}
+
 		// 2. Add Manually Added Files (Roots)
-		// Again, keeping resolveStartFiles for adding
 		for (const manual of this.manuallyAddedFiles) {
 			const resolved = resolveStartFiles(this.app, this.plugin.settings, manual);
 			initialRoots.push(...resolved);
@@ -209,25 +210,36 @@ export class SummaryConfigModal extends Modal {
 
 		const effectiveRoots = Array.from(uniqueMap.values());
 
-		// 4. Run BFS (Passing plugin settings for global backlink control)
-		// BFS will only run on roots not explicitly removed.
+		// 4. Run BFS
 		const bfsResult = runBFS(this.app, effectiveRoots, this.config, this.plugin.settings);
 
 		// 5. Expand Mirrors & Filter both trees
-		// CRITICAL CHANGE: We use the helper that filtering removed files.
-
 		// Roots tree expansion (explicit inclusion)
 		this.startFiles = this.expandAndFilterMirrors(bfsResult.startFiles);
 
 		// Linked tree expansion
 		let rawLinked = expandWithMirrors(this.app, this.plugin.settings, bfsResult.others);
 
+		// --- New: Apply "Always Include as Links" Setting ---
+		const persistentLinkedExpanded = new Set<string>();
+		for (const path of this.plugin.settings.alwaysIncludePathsAsLinks) {
+			const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+			if (file instanceof TFile && file.extension === "md") {
+				// We still use resolveStartFiles to find counterparts
+				const resolved = resolveStartFiles(this.app, this.plugin.settings, file);
+				// Then expand and filter by removedPaths
+				const expanded = this.expandAndFilterMirrors(resolved);
+				for (const f of expanded) {
+					persistentLinkedExpanded.add(normalizePath(f.path));
+					rawLinked.push(f);
+				}
+			}
+		}
+
 		// Process manually added linked files
 		const manualLinkedExpanded = new Set<string>();
 		for (const manual of this.manuallyAddedLinkedFiles) {
-			// Keeping resolveStartFiles for "add" logic
 			const resolved = resolveStartFiles(this.app, this.plugin.settings, manual);
-			// We expand, then filter manual links too
 			const expanded = this.expandAndFilterMirrors(resolved);
 			for (const f of expanded) {
 				manualLinkedExpanded.add(normalizePath(f.path));
@@ -247,14 +259,14 @@ export class SummaryConfigModal extends Modal {
 		}
 
 		// Final Linked Tree population with exclusion check
-		// CRITICAL: Filter again by removedPaths, just in case manual link logic put them back.
 		this.linkedFiles = Array.from(uniqueLinked.values()).filter(f => {
 			const normPath = normalizePath(f.path);
 
 			// Check if removed first
 			if (this.removedPaths.has(normPath)) return false;
 
-			// Bypass exclusions for manually added linked files
+			// Bypass exclusions for persistent or manual linked files
+			if (persistentLinkedExpanded.has(normPath)) return true;
 			if (manualLinkedExpanded.has(normPath)) return true;
 
 			if (isExcludedFilePath(f.path, this.plugin.settings)) return false;
@@ -377,7 +389,7 @@ export class SummaryConfigModal extends Modal {
 		}
 
 		// --- Linked Section ---
-		const showLinkedSection = linkedCount > 0 || rootsCount > 0 || this.manuallyAddedLinkedFiles.length > 0;
+		const showLinkedSection = linkedCount > 0 || rootsCount > 0 || this.manuallyAddedLinkedFiles.length > 0 || this.plugin.settings.alwaysIncludePathsAsLinks.length > 0;
 
 		if (showLinkedSection) {
 			// Draw separator if there's a section above it
@@ -574,10 +586,22 @@ export class SummaryConfigModal extends Modal {
 
 			const labelEl = rowEl.createEl("span", { cls: "vs-tree-label", text: child.name });
 
-			const isManualLinked = !isRootTree && child.isFile && child.file && this.manuallyAddedLinkedFiles.some(f => f.path === child.file!.path);
+			// --- Updated trash button logic ---
 
-			// Show a trash button on root files or manually added linked files
-			if ((isRootTree || isManualLinked) && child.isFile && child.file) {
+			const normChildPath = child.file ? normalizePath(child.file.path) : "";
+
+			// Is it persistently added as link?
+			const isPersistentLinked = !isRootTree && child.isFile && this.plugin.settings.alwaysIncludePathsAsLinks.some(p => normalizePath(p) === normChildPath);
+
+			const isManualLinked = !isRootTree && child.isFile && child.file && this.manuallyAddedLinkedFiles.some(f => normalizePath(f.path) === normChildPath);
+
+			// If it's Root Tree, show trash button (BFS results or persistently added roots).
+			const showTrashInRoot = isRootTree && child.isFile;
+
+			// If it's Link tree, only show if it was manually added (implicitly or explicitly), NOT if it was purely persistent link setting (it can't be removed).
+			const showTrashInLink = isManualLinked;
+
+			if ((showTrashInRoot || showTrashInLink) && child.isFile && child.file) {
 				const trashBtn = rowEl.createEl("div", { cls: "vs-node-action" });
 				setIcon(trashBtn, "trash-2");
 				trashBtn.title = isRootTree ? "Remove from Root Files" : "Remove from Linked Files";

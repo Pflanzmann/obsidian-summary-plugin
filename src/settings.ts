@@ -12,6 +12,11 @@ export const DEFAULT_SETTINGS: VaultSummarySettings = {
 
 	excludedFilePaths: [],
 	excludedGlobs: [],
+
+	// New defaults
+	alwaysIncludePathsAsRoots: [],
+	alwaysIncludePathsAsLinks: [],
+
 	scanDepth: 1,
 
 	backlinksOnRootOnly: false, // Default to checking all levels
@@ -47,6 +52,34 @@ export class SummarySettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.outputFilePath)
 					.onChange(async (value) => {
 						this.plugin.settings.outputFilePath = value.trim() || DEFAULT_SETTINGS.outputFilePath;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		// --- Always Include Settings ---
+		containerEl.createEl("h3", { text: "Persistent Inclusions" });
+		containerEl.createEl("p", { text: "Paths specified here will be added to every summary request (except Entire Vault, where they are included implicitly). Mirroring logic is applied to these paths.", cls: "setting-item-description"});
+
+		new Setting(containerEl)
+			.setName("Always include as Root Files")
+			.setDesc("Comma-separated exact paths. These files become BFS starting points.")
+			.addTextArea((area) =>
+				area
+					.setValue(this.plugin.settings.alwaysIncludePathsAsRoots.join(", "))
+					.onChange(async (value) => {
+						this.plugin.settings.alwaysIncludePathsAsRoots = value.split(",").map((s) => s.trim()).filter(Boolean);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Always include as Linked Files")
+			.setDesc("Comma-separated exact paths. These files are added but not used as BFS starting points.")
+			.addTextArea((area) =>
+				area
+					.setValue(this.plugin.settings.alwaysIncludePathsAsLinks.join(", "))
+					.onChange(async (value) => {
+						this.plugin.settings.alwaysIncludePathsAsLinks = value.split(",").map((s) => s.trim()).filter(Boolean);
 						await this.plugin.saveSettings();
 					})
 			);

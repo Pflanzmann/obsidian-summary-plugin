@@ -7,19 +7,58 @@ import {
 	normalizeMirrorSortKey,
 	generateDynamicPath
 } from "./utils";
+import { resolveStartFiles } from "./generator/mirror";
+
 
 // --- 1. Standard Generation (All Vault) ---
 
 export async function generateSummary(app: App, settings: VaultSummarySettings): Promise<void> {
 	const { vault } = app;
 	const allFiles = vault.getMarkdownFiles();
-	// For "All Vault", we don't really have specific roots, or everything is root.
-	// We'll treat nothing as prioritized root to rely on path sorting.
-	const candidates = createCandidates(allFiles, settings, []);
+
+	// --- New: Ensure Persistent Inclusions are incorporated ---
+
+	// We build a list of all files that MUST be included, applying mirroring logic.
+	const mandatoryFiles: TFile[] = [];
+
+	const addPersistent = (path: string) => {
+		const file = vault.getAbstractFileByPath(normalizePath(path));
+		if (file instanceof TFile && file.extension === "md") {
+			mandatoryFiles.push(...resolveStartFiles(app, settings, file));
+		}
+	};
+
+	settings.alwaysIncludePathsAsRoots.forEach(addPersistent);
+	settings.alwaysIncludePathsAsLinks.forEach(addPersistent);
+
+	const mandatoryPaths = new Set(mandatoryFiles.map(f => normalizePath(f.path)));
+
+	// Combine mandatory files with all vault files (deduplicating by path)
+	const uniqueFilesMap = new Map<string, TFile>();
+
+	// BFS starts are considered Roots, so they come first
+	mandatoryFiles.forEach(f => uniqueFilesMap.set(normalizePath(f.path), f));
+
+	// Add everything else
+	allFiles.forEach(f => {
+		const normPath = normalizePath(f.path);
+		if (!uniqueFilesMap.has(normPath)) {
+			uniqueFilesMap.set(normPath, f);
+		}
+	});
+
+	const finalFileList = Array.from(uniqueFilesMap.values());
+
+	const uniqueRootsMap = new Map<string, TFile>();
+	mandatoryFiles.forEach(f => uniqueRootsMap.set(normalizePath(f.path), f));
+	const deduplicatedMandatory = Array.from(uniqueRootsMap.values());
+
+	const candidates = createCandidates(finalFileList, settings, deduplicatedMandatory);
 
 	const outputPath = generateDynamicPath(settings.outputFilePath, null);
 	await processAndWrite(app, candidates, settings, outputPath);
 }
+
 
 // --- 2. Link-Based Generation (Passed Folder) ---
 
