@@ -1,8 +1,6 @@
 import { App, Notice, TFile, normalizePath } from "obsidian";
 import { Candidate, VaultSummarySettings } from "../types";
 import {
-	isExcludedFilePath,
-	isFolderExcluded,
 	isUnderDir,
 	normalizeMirrorSortKey
 } from "../utils";
@@ -79,8 +77,6 @@ export function createCandidates(
 	const mirrorActive = settings.enableMirroring && mirrorDir.length > 0;
 
 	// 1. Build a set of "Root Sort Keys".
-	// This identifies the unique content ID (Path relative to vault root, ignoring mirror prefix).
-	// This allows us to protect BOTH the Primary and the Mirror version of a selected root from exclusion.
 	const rootSortKeys = new Set<string>();
 	for (const r of rootFiles) {
 		rootSortKeys.add(normalizeMirrorSortKey(r.path, settings));
@@ -95,13 +91,7 @@ export function createCandidates(
 		// Check if this file is part of the selected roots (Primary or Mirror)
 		const isRootGroup = rootSortKeys.has(currentSortKey);
 
-		// Exclusions Check:
-		// We ONLY skip if the file is NOT part of the Root Group.
-		// Explicitly selected roots are always included.
-		if (!isRootGroup) {
-			if (isExcludedFilePath(p, settings)) continue;
-			if (isFolderExcluded(p, settings)) continue;
-		}
+		// Exclusions are handled robustly upstream by UI/filters prior to candidate creation.
 
 		let c: Candidate;
 

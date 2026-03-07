@@ -16,44 +16,49 @@ export async function generateSummary(app: App, settings: VaultSummarySettings):
 	const { vault } = app;
 	const allFiles = vault.getMarkdownFiles();
 
-	// --- New: Ensure Persistent Inclusions are incorporated ---
+	// We build lists of files that MUST be included, applying mirroring logic.
+	const mandatoryRoots: TFile[] = [];
+	const mandatoryLinks: TFile[] = [];
 
-	// We build a list of all files that MUST be included, applying mirroring logic.
-	const mandatoryFiles: TFile[] = [];
-
-	const addPersistent = (path: string) => {
+	settings.alwaysIncludePathsAsRoots.forEach(path => {
 		const file = vault.getAbstractFileByPath(normalizePath(path));
 		if (file instanceof TFile && file.extension === "md") {
-			mandatoryFiles.push(...resolveStartFiles(app, settings, file));
+			mandatoryRoots.push(...resolveStartFiles(app, settings, file));
 		}
-	};
+	});
 
-	settings.alwaysIncludePathsAsRoots.forEach(addPersistent);
-	settings.alwaysIncludePathsAsLinks.forEach(addPersistent);
-
-	const mandatoryPaths = new Set(mandatoryFiles.map(f => normalizePath(f.path)));
+	settings.alwaysIncludePathsAsLinks.forEach(path => {
+		const file = vault.getAbstractFileByPath(normalizePath(path));
+		if (file instanceof TFile && file.extension === "md") {
+			mandatoryLinks.push(...resolveStartFiles(app, settings, file));
+		}
+	});
 
 	// Combine mandatory files with all vault files (deduplicating by path)
 	const uniqueFilesMap = new Map<string, TFile>();
 
-	// BFS starts are considered Roots, so they come first
-	mandatoryFiles.forEach(f => uniqueFilesMap.set(normalizePath(f.path), f));
+	// Add mandatory ones first (bypass exclusions)
+	mandatoryRoots.forEach(f => uniqueFilesMap.set(normalizePath(f.path), f));
+	mandatoryLinks.forEach(f => uniqueFilesMap.set(normalizePath(f.path), f));
 
-	// Add everything else
+	// Add everything else if not excluded
 	allFiles.forEach(f => {
 		const normPath = normalizePath(f.path);
 		if (!uniqueFilesMap.has(normPath)) {
-			uniqueFilesMap.set(normPath, f);
+			if (!isExcludedFilePath(normPath, settings) && !isFolderExcluded(normPath, settings)) {
+				uniqueFilesMap.set(normPath, f);
+			}
 		}
 	});
 
 	const finalFileList = Array.from(uniqueFilesMap.values());
 
+	// Roots only for root styling/sorting
 	const uniqueRootsMap = new Map<string, TFile>();
-	mandatoryFiles.forEach(f => uniqueRootsMap.set(normalizePath(f.path), f));
-	const deduplicatedMandatory = Array.from(uniqueRootsMap.values());
+	mandatoryRoots.forEach(f => uniqueRootsMap.set(normalizePath(f.path), f));
+	const deduplicatedRoots = Array.from(uniqueRootsMap.values());
 
-	const candidates = createCandidates(finalFileList, settings, deduplicatedMandatory);
+	const candidates = createCandidates(finalFileList, settings, deduplicatedRoots);
 
 	const outputPath = generateDynamicPath(settings.outputFilePath, null);
 	await processAndWrite(app, candidates, settings, outputPath);
@@ -70,7 +75,15 @@ export async function generateSummaryFromLinks(
 ): Promise<void> {
 	// Backward compatibility wrapper
 	const files = getIncludedFilesForFolder(app, settings, folderPath, config);
-	const allFiles = [...files.startFiles, ...files.others];
+
+	const rootPaths = new Set(files.startFiles.map(f => normalizePath(f.path)));
+	const allFiles = [...files.startFiles, ...files.others].filter(f => {
+		const normPath = normalizePath(f.path);
+		if (rootPaths.has(normPath)) return true; // roots bypass exclusion
+		if (isExcludedFilePath(normPath, settings)) return false;
+		if (isFolderExcluded(normPath, settings)) return false;
+		return true;
+	});
 
 	const folderName = folderPath.split('/').pop() || "Folder";
 
@@ -88,7 +101,15 @@ export async function generateSummaryFromFile(
 ): Promise<void> {
 	// Backward compatibility wrapper
 	const files = getIncludedFiles(app, settings, startFile, config);
-	const allFiles = [...files.startFiles, ...files.others];
+
+	const rootPaths = new Set(files.startFiles.map(f => normalizePath(f.path)));
+	const allFiles = [...files.startFiles, ...files.others].filter(f => {
+		const normPath = normalizePath(f.path);
+		if (rootPaths.has(normPath)) return true; // roots bypass exclusion
+		if (isExcludedFilePath(normPath, settings)) return false;
+		if (isFolderExcluded(normPath, settings)) return false;
+		return true;
+	});
 
 	// Pass startFiles as roots
 	await generateSummaryFromFiles(app, settings, allFiles, startFile.basename, files.startFiles);
@@ -322,7 +343,6 @@ function createCandidates(
 	const mirrorActive = mirrorDir.length > 0;
 
 	// Build a set of "Root Sort Keys".
-	// This lets us identify if a file is a root OR a mirror of a root.
 	const rootSortKeys = new Set<string>();
 	for (const r of rootFiles) {
 		rootSortKeys.add(normalizeMirrorSortKey(r.path, settings));
@@ -335,12 +355,7 @@ function createCandidates(
 		const sortKey = normalizeMirrorSortKey(p, settings);
 		const isRoot = rootSortKeys.has(sortKey);
 
-		// Check exclusions ONLY if it is NOT a root file.
-		// Root files (explicitly selected) bypass global exclusions.
-		if (!isRoot) {
-			if (isExcludedFilePath(p, settings)) continue;
-			if (isFolderExcluded(p, settings)) continue;
-		}
+		// Exclusions logic removed: It is now securely handled upstream by filtering functions.
 
 		let c: Candidate;
 
@@ -360,7 +375,6 @@ function createCandidates(
 			};
 		}
 
-		// Determine if this candidate is part of the "Root" group
 		if (isRoot) {
 			c.isRoot = true;
 		}

@@ -1,6 +1,6 @@
 import { App, TFile, normalizePath } from "obsidian";
 import { VaultSummarySettings, RunConfig } from "../types";
-import { generateDynamicPath } from "../utils";
+import { generateDynamicPath, isExcludedFilePath, isFolderExcluded } from "../utils";
 
 // Sub-modules
 import { runBFS, BFSResult } from "./graph";
@@ -12,8 +12,46 @@ import { createCandidates, processAndWrite } from "./writer";
 export async function generateSummary(app: App, settings: VaultSummarySettings): Promise<void> {
 	const { vault } = app;
 	const allFiles = vault.getMarkdownFiles();
-	// For "All Vault", no specific roots to prioritize
-	const candidates = createCandidates(allFiles, settings, []);
+
+	const mandatoryRoots: TFile[] = [];
+	const mandatoryLinks: TFile[] = [];
+
+	settings.alwaysIncludePathsAsRoots.forEach(path => {
+		const file = vault.getAbstractFileByPath(normalizePath(path));
+		if (file instanceof TFile && file.extension === "md") {
+			mandatoryRoots.push(...resolveStartFiles(app, settings, file));
+		}
+	});
+
+	settings.alwaysIncludePathsAsLinks.forEach(path => {
+		const file = vault.getAbstractFileByPath(normalizePath(path));
+		if (file instanceof TFile && file.extension === "md") {
+			mandatoryLinks.push(...resolveStartFiles(app, settings, file));
+		}
+	});
+
+	const uniqueFilesMap = new Map<string, TFile>();
+
+	// Include mandatory and bypass exclusions
+	mandatoryRoots.forEach(f => uniqueFilesMap.set(normalizePath(f.path), f));
+	mandatoryLinks.forEach(f => uniqueFilesMap.set(normalizePath(f.path), f));
+
+	allFiles.forEach(f => {
+		const normPath = normalizePath(f.path);
+		if (!uniqueFilesMap.has(normPath)) {
+			if (!isExcludedFilePath(normPath, settings) && !isFolderExcluded(normPath, settings)) {
+				uniqueFilesMap.set(normPath, f);
+			}
+		}
+	});
+
+	const finalFileList = Array.from(uniqueFilesMap.values());
+
+	const uniqueRootsMap = new Map<string, TFile>();
+	mandatoryRoots.forEach(f => uniqueRootsMap.set(normalizePath(f.path), f));
+	const deduplicatedRoots = Array.from(uniqueRootsMap.values());
+
+	const candidates = createCandidates(finalFileList, settings, deduplicatedRoots);
 
 	const outputPath = generateDynamicPath(settings.outputFilePath, null);
 	await processAndWrite(app, candidates, settings, outputPath);
