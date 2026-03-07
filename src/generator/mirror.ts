@@ -7,13 +7,10 @@ export function resolveStartFiles(
 	settings: VaultSummarySettings,
 	startFile: TFile
 ): TFile[] {
-	// 1. Check Toggle
 	if (!settings.enableMirroring) return [startFile];
 
 	const startFiles: TFile[] = [startFile];
 
-	// findMirrorFile natively handles finding the counterpart
-	// for BOTH Primary->Mirror AND Mirror->Primary
 	const counterpart = findMirrorFile(app, startFile, settings);
 	if (counterpart) {
 		startFiles.push(counterpart);
@@ -27,7 +24,6 @@ export function expandWithMirrors(
 	settings: VaultSummarySettings,
 	files: TFile[]
 ): TFile[] {
-	// 1. Check Toggle
 	if (!settings.enableMirroring) return files;
 	if (!settings.mirrorFolderPath.trim()) return files;
 
@@ -49,13 +45,11 @@ export function findMirrorFile(
 	file: TFile,
 	settings: VaultSummarySettings
 ): TFile | null {
-	// 1. Check Toggle
 	if (!settings.enableMirroring) return null;
 
 	const mirrorDir = settings.mirrorFolderPath.trim();
 	if (!mirrorDir) return null;
 
-	// If file is already in mirror dir, find primary
 	if (isUnderDir(file.path, mirrorDir)) {
 		const mirrorPrefix = mirrorDir.replace(/\/+$/, "") + "/";
 		if (file.path.startsWith(mirrorPrefix)) {
@@ -66,7 +60,6 @@ export function findMirrorFile(
 		return null;
 	}
 
-	// If file is primary, find mirror
 	const mirrorPath = normalizePath(`${mirrorDir}/${file.path}`);
 	const mirrorFile = app.vault.getAbstractFileByPath(mirrorPath);
 

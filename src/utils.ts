@@ -1,7 +1,6 @@
 import { normalizePath } from "obsidian";
 import { VaultSummarySettings } from "./types";
 
-// --- Path & Directory Helpers ---
 
 export function posixDirname(p: string): string {
 	const s = normalizePath(p);
@@ -27,12 +26,7 @@ export function generateDynamicPath(basePath: string, suffix: string | null): st
 	}
 }
 
-/**
- * Normalizes the path for sorting.
- * If Mirror is disabled, simply returns the original path.
- */
 export function normalizeMirrorSortKey(originalPath: string, settings: VaultSummarySettings): string {
-	// Check Toggle
 	if (!settings.enableMirroring) return originalPath;
 
 	const mirrorDir = settings.mirrorFolderPath.trim();
@@ -44,7 +38,6 @@ export function normalizeMirrorSortKey(originalPath: string, settings: VaultSumm
 		: originalPath;
 }
 
-// --- Exclusion Logic ---
 
 export function isUnderDir(filePath: string, dirName: string): boolean {
 	const fp = normalizePath(filePath);
@@ -61,12 +54,10 @@ export function isFolderExcluded(filePath: string, settings: VaultSummarySetting
 		const normalizedExclude = normalizePath(excludedDir);
 		if (!normalizedExclude) continue;
 
-		// 1. Direct Match
 		if (isUnderDir(normalizedFile, normalizedExclude)) {
 			return true;
 		}
 
-		// 2. Mirror Relative Match (Only if mirror is active)
 		if (mirrorActive && isUnderDir(normalizedFile, mirrorDir)) {
 			const mirrorPrefix = mirrorDir.replace(/\/+$/, "") + "/";
 
@@ -81,10 +72,9 @@ export function isFolderExcluded(filePath: string, settings: VaultSummarySetting
 	return false;
 }
 
-// --- Globs & Patterns ---
 
 function normalizeExcludePath(p: string): string {
-	const stripped = p.trim().replace(/^\.\//, "");
+	const stripped = p.trim().replace(/^\.\
 	return normalizePath(stripped);
 }
 

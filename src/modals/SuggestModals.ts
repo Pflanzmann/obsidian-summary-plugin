@@ -26,11 +26,10 @@ export class FileSuggestModal extends FuzzySuggestModal<TFile> {
 		return allFiles.sort((a, b) => {
 			const idxA = recents.indexOf(a.path);
 			const idxB = recents.indexOf(b.path);
-			// Items in history come first
+
 			if (idxA !== -1 && idxB !== -1) return idxA - idxB;
 			if (idxA !== -1) return -1;
 			if (idxB !== -1) return 1;
-			// Default alphabetical
 			return a.path.localeCompare(b.path);
 		});
 	}

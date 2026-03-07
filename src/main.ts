@@ -16,16 +16,13 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 	history: VaultSummaryHistory;
 
 	async onload() {
-		// Load Settings (data.json)
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 
-		// Load History (history.json)
 		await this.loadHistory();
 
 		this.addSettingTab(new SummarySettingTab(this.app, this));
 		loadPluginStyles();
 
-		// 1. Entire Vault
 		this.addCommand({
 			id: "generate-vault-summary",
 			name: "Generate summary: Entire vault",
@@ -39,18 +36,15 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 			},
 		});
 
-		// 2. Folder Mode
 		this.addCommand({
 			id: "generate-vault-summary-from-links",
 			name: "Generate summary: Choose folder...",
 			callback: async () => {
 				new FolderSuggestModal(this.app, this.settings, this.history, (selectedFolder) => {
-					// Updated callback signature with rootFiles
 					new SummaryConfigModal(this.app, this, selectedFolder, async (files, config, rootFiles) => {
 						await this.addFolderToHistory(selectedFolder.path);
 						try {
 							const folderName = selectedFolder.path.split('/').pop() || "Folder";
-							// Use explicit rootFiles from modal
 							await generateSummaryFromFiles(this.app, this.settings, files, folderName, rootFiles);
 						} catch (err: any) {
 							console.error(err);
@@ -61,13 +55,11 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 			},
 		});
 
-		// 3. Single File Mode (File Picker)
 		this.addCommand({
 			id: "generate-vault-summary-single-file",
 			name: "Generate summary: Choose file...",
 			callback: async () => {
 				new FileSuggestModal(this.app, this.settings, this.history, (file) => {
-					// Updated callback signature with rootFiles
 					new SummaryConfigModal(this.app, this, file, async (files, config, rootFiles) => {
 						await this.addFileToHistory(file.path);
 						try {
@@ -81,7 +73,6 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 			},
 		});
 
-		// 4. Current File Mode (Active View)
 		this.addCommand({
 			id: "generate-vault-summary-current-file",
 			name: "Generate summary: Active file",
@@ -89,7 +80,6 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 				const activeFile = this.app.workspace.getActiveFile();
 				if (activeFile instanceof TFile && activeFile.extension === "md") {
 					if (!checking) {
-						// Updated callback signature with rootFiles
 						new SummaryConfigModal(this.app, this, activeFile, async (files, config, rootFiles) => {
 							await this.addFileToHistory(activeFile.path);
 							try {
@@ -106,10 +96,8 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 			},
 		});
 
-		// --- NEW: Context Menu (Single File/Folder) ---
 		this.registerEvent(
 			this.app.workspace.on("file-menu", (menu, file) => {
-				// We only care about folders or markdown files
 				if (file instanceof TFolder || (file instanceof TFile && file.extension === "md")) {
 					menu.addItem((item) => {
 						item
@@ -133,10 +121,8 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 			})
 		);
 
-		// --- NEW: Context Menu (Multiple Selected Files/Folders) ---
 		this.registerEvent(
 			this.app.workspace.on("files-menu", (menu, files) => {
-				// Ensure at least one valid markdown file or folder is in the selection
 				const hasValidItem = files.some(f => f instanceof TFolder || (f instanceof TFile && f.extension === "md"));
 				if (!hasValidItem) return;
 

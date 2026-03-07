@@ -17,7 +17,7 @@ export function loadPluginStyles() {
 		.vs-tree-item {
 			display: flex;
 			flex-direction: column;
-			margin-left: 18px; /* Indent */
+			margin-left: 18px; 
 			border-left: 1px solid var(--background-modifier-border);
 		}
 		.vs-tree-row {
@@ -25,7 +25,7 @@ export function loadPluginStyles() {
 			align-items: center;
 			padding: 2px 0;
 			cursor: pointer;
-			position: relative; /* For positioning absolute elements if needed, though flex is used */
+			position: relative; 
 		}
 		.vs-tree-row:hover {
 			background-color: var(--background-modifier-hover);
@@ -43,7 +43,7 @@ export function loadPluginStyles() {
 		.vs-tree-label {
 			font-size: 0.9em;
 			color: var(--text-normal);
-			flex-grow: 1; /* Pushes action buttons to the right */
+			flex-grow: 1; 
 			margin-right: 10px;
 		}
 		.vs-tree-row.is-folder {
@@ -70,9 +70,8 @@ export function loadPluginStyles() {
 			padding: 0 5px;
 		}
 		
-		/* --- Node Actions (Trash Icon) --- */
 		.vs-node-action {
-			opacity: 0; /* Hidden by default */
+			opacity: 0; 
 			color: var(--text-muted);
 			display: flex;
 			align-items: center;
@@ -82,18 +81,17 @@ export function loadPluginStyles() {
 			margin-right: 5px;
 		}
 		.vs-node-action:hover {
-			color: var(--text-error); /* Red color for trash */
+			color: var(--text-error); 
 			background-color: var(--background-modifier-hover);
 		}
 		.vs-tree-row:hover .vs-node-action {
-			opacity: 1; /* Show on hover */
+			opacity: 1; 
 		}
 		.vs-node-action svg {
 			width: 14px;
 			height: 14px;
 		}
 		
-		/* --- Split View & Separator Styles --- */
 		
 		.vs-tree-section {
 			display: flex;
@@ -109,7 +107,6 @@ export function loadPluginStyles() {
 			opacity: 0.7;
 		}
 
-		/* Header Row Flexbox */
 		.vs-tree-section-header-row {
 			display: flex;
 			align-items: center;
@@ -127,7 +124,6 @@ export function loadPluginStyles() {
 			font-weight: 700;
 		}
 		
-		/* Action Buttons */
 		.vs-tree-actions {
 			display: flex;
 			gap: 4px;

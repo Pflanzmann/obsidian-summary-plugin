@@ -16,28 +16,22 @@ export async function processAndWrite(
 		return;
 	}
 
-	// --- SORTING LOGIC ---
 	candidates.sort((a, b) => {
-		// 1. Root files come first
 		const aRoot = a.isRoot ? 1 : 0;
 		const bRoot = b.isRoot ? 1 : 0;
 		if (aRoot !== bRoot) return bRoot - aRoot;
 
-		// 2. Sort by SortKey (Groups Primary and Mirror together if enabled)
 		const cmp = a.sortKeyPath.localeCompare(b.sortKeyPath);
 		if (cmp !== 0) return cmp;
 
-		// 3. Tie-Breaker: Primary before Mirror
 		if (settings.enableMirroring) {
 			if (a.sourceLabel === settings.primaryLabel && b.sourceLabel === settings.mirrorLabel) return -1;
 			if (b.sourceLabel === settings.primaryLabel && a.sourceLabel === settings.mirrorLabel) return 1;
 		}
 
-		// 4. Fallback: Path sorting
 		return a.originalPath.localeCompare(b.originalPath);
 	});
 
-	// --- GENERATION LOGIC ---
 	let out = "";
 	for (const c of candidates) {
 		out += `### FILE: ${c.originalPath}\n`;
@@ -76,7 +70,6 @@ export function createCandidates(
 	const mirrorDir = settings.mirrorFolderPath.trim();
 	const mirrorActive = settings.enableMirroring && mirrorDir.length > 0;
 
-	// 1. Build a set of "Root Sort Keys".
 	const rootSortKeys = new Set<string>();
 	for (const r of rootFiles) {
 		rootSortKeys.add(normalizeMirrorSortKey(r.path, settings));
@@ -85,25 +78,20 @@ export function createCandidates(
 	for (const f of files) {
 		const p = normalizePath(f.path);
 
-		// Calculate this file's abstract identity
 		const currentSortKey = normalizeMirrorSortKey(p, settings);
 
-		// Check if this file is part of the selected roots (Primary or Mirror)
 		const isRootGroup = rootSortKeys.has(currentSortKey);
 
-		// Exclusions are handled robustly upstream by UI/filters prior to candidate creation.
 
 		let c: Candidate;
 
 		if (mirrorActive && isUnderDir(p, mirrorDir)) {
-			// It is a Mirror File
 			c = {
 				sortKeyPath: currentSortKey,
 				originalPath: p,
 				sourceLabel: settings.mirrorLabel,
 			};
 		} else {
-			// It is a Standard File
 			c = {
 				sortKeyPath: p,
 				originalPath: p,

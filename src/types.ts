@@ -21,30 +21,23 @@ export interface VaultSummaryHistory {
 export interface VaultSummarySettings {
 	outputFilePath: string;
 
-	// Global / Logic settings
 	globalExcludedDirNames: string[];
 
-	// --- Mirroring Settings ---
 	enableMirroring: boolean;
 	mirrorFolderPath: string;
 	primaryLabel: string;
 	mirrorLabel: string;
 
-	// Exclude specific files:
 	excludedFilePaths: string[];
 	excludedGlobs: string[];
 
-	// --- New: Always Include Settings ---
 	alwaysIncludePathsAsRoots: string[];
 	alwaysIncludePathsAsLinks: string[];
 
-	// Recursion depth
 	scanDepth: number;
 
-	// Limit backlinks traversal
 	backlinksOnRootOnly: boolean;
 
-	// Persist Mode settings
 	lastRunSettings: RunConfig;
 }
 

@@ -10,13 +10,11 @@ import {
 import { resolveStartFiles } from "./generator/mirror";
 
 
-// --- 1. Standard Generation (All Vault) ---
 
 export async function generateSummary(app: App, settings: VaultSummarySettings): Promise<void> {
 	const { vault } = app;
 	const allFiles = vault.getMarkdownFiles();
 
-	// We build lists of files that MUST be included, applying mirroring logic.
 	const mandatoryRoots: TFile[] = [];
 	const mandatoryLinks: TFile[] = [];
 
@@ -34,14 +32,11 @@ export async function generateSummary(app: App, settings: VaultSummarySettings):
 		}
 	});
 
-	// Combine mandatory files with all vault files (deduplicating by path)
 	const uniqueFilesMap = new Map<string, TFile>();
 
-	// Add mandatory ones first (bypass exclusions)
 	mandatoryRoots.forEach(f => uniqueFilesMap.set(normalizePath(f.path), f));
 	mandatoryLinks.forEach(f => uniqueFilesMap.set(normalizePath(f.path), f));
 
-	// Add everything else if not excluded
 	allFiles.forEach(f => {
 		const normPath = normalizePath(f.path);
 		if (!uniqueFilesMap.has(normPath)) {
@@ -53,7 +48,6 @@ export async function generateSummary(app: App, settings: VaultSummarySettings):
 
 	const finalFileList = Array.from(uniqueFilesMap.values());
 
-	// Roots only for root styling/sorting
 	const uniqueRootsMap = new Map<string, TFile>();
 	mandatoryRoots.forEach(f => uniqueRootsMap.set(normalizePath(f.path), f));
 	const deduplicatedRoots = Array.from(uniqueRootsMap.values());
@@ -65,7 +59,6 @@ export async function generateSummary(app: App, settings: VaultSummarySettings):
 }
 
 
-// --- 2. Link-Based Generation (Passed Folder) ---
 
 export async function generateSummaryFromLinks(
 	app: App,
@@ -73,13 +66,12 @@ export async function generateSummaryFromLinks(
 	folderPath: string,
 	config: RunConfig
 ): Promise<void> {
-	// Backward compatibility wrapper
 	const files = getIncludedFilesForFolder(app, settings, folderPath, config);
 
 	const rootPaths = new Set(files.startFiles.map(f => normalizePath(f.path)));
 	const allFiles = [...files.startFiles, ...files.others].filter(f => {
 		const normPath = normalizePath(f.path);
-		if (rootPaths.has(normPath)) return true; // roots bypass exclusion
+		if (rootPaths.has(normPath)) return true;
 		if (isExcludedFilePath(normPath, settings)) return false;
 		if (isFolderExcluded(normPath, settings)) return false;
 		return true;
@@ -87,11 +79,9 @@ export async function generateSummaryFromLinks(
 
 	const folderName = folderPath.split('/').pop() || "Folder";
 
-	// Pass startFiles as roots
 	await generateSummaryFromFiles(app, settings, allFiles, folderName, files.startFiles);
 }
 
-// --- 3. Single File Mode ---
 
 export async function generateSummaryFromFile(
 	app: App,
@@ -99,30 +89,27 @@ export async function generateSummaryFromFile(
 	startFile: TFile,
 	config: RunConfig
 ): Promise<void> {
-	// Backward compatibility wrapper
 	const files = getIncludedFiles(app, settings, startFile, config);
 
 	const rootPaths = new Set(files.startFiles.map(f => normalizePath(f.path)));
 	const allFiles = [...files.startFiles, ...files.others].filter(f => {
 		const normPath = normalizePath(f.path);
-		if (rootPaths.has(normPath)) return true; // roots bypass exclusion
+		if (rootPaths.has(normPath)) return true;
 		if (isExcludedFilePath(normPath, settings)) return false;
 		if (isFolderExcluded(normPath, settings)) return false;
 		return true;
 	});
 
-	// Pass startFiles as roots
 	await generateSummaryFromFiles(app, settings, allFiles, startFile.basename, files.startFiles);
 }
 
-// --- 4. NEW: Generate from Specific List (Called by UI) ---
 
 export async function generateSummaryFromFiles(
 	app: App,
 	settings: VaultSummarySettings,
-	files: TFile[], // The files selected in the UI
-	sourceName: string, // For filename generation
-	rootFiles: TFile[] = [] // The files that initiated the crawl (to be put at top)
+	files: TFile[],
+	sourceName: string,
+	rootFiles: TFile[] = []
 ): Promise<void> {
 
 	const candidates = createCandidates(files, settings, rootFiles);
@@ -130,7 +117,6 @@ export async function generateSummaryFromFiles(
 	await processAndWrite(app, candidates, settings, outputPath);
 }
 
-// --- 5. Calculation Logic (BFS) & Helpers ---
 
 export function getIncludedFiles(
 	app: App,
@@ -143,10 +129,8 @@ export function getIncludedFiles(
 	const startFiles: TFile[] = [startFile];
 	const mirrorDir = settings.mirrorFolderPath.trim();
 
-	// 1. Initial Start File Logic (checking for mirror of root)
 	if (mirrorDir) {
 		if (isUnderDir(startFile.path, mirrorDir)) {
-			// If we started on a mirror file, find the primary
 			const mirrorPrefix = mirrorDir.replace(/\/+$/, "") + "/";
 			if (startFile.path.startsWith(mirrorPrefix)) {
 				const primaryPath = startFile.path.slice(mirrorPrefix.length);
@@ -156,16 +140,13 @@ export function getIncludedFiles(
 				}
 			}
 		} else {
-			// If we started on primary, find mirror
 			const mirror = findMirrorFile(app, startFile, settings);
 			if (mirror) startFiles.push(mirror);
 		}
 	}
 
-	// 2. Run BFS (Pass settings)
 	const bfsResult = runBFS(app, startFiles, config, settings);
 
-	// 3. Expand result with mirrors
 	const expandedStart = expandWithMirrors(app, settings, bfsResult.startFiles);
 	const expandedOthers = expandWithMirrors(app, settings, bfsResult.others);
 
@@ -186,7 +167,6 @@ export function getIncludedFilesForFolder(
 		f.path === scanDir || f.path.startsWith(scanDir + "/")
 	);
 
-	// Pass settings
 	const bfsResult = runBFS(app, startFiles, config, settings);
 
 	const expandedStart = expandWithMirrors(app, settings, bfsResult.startFiles);
@@ -239,7 +219,6 @@ function runBFS(
 
 		if (depth > config.depth) continue;
 
-		// A. Process Outgoing
 		if (config.includeMentions) {
 			const cache = metadataCache.getFileCache(currentFile);
 			if (cache) {
@@ -257,9 +236,7 @@ function runBFS(
 			}
 		}
 
-		// B. Process Incoming
 		if (config.includeBacklinks && globalBacklinkMap) {
-			// NEW LOGIC: Check setting
 			const allowBacklinks = !settings.backlinksOnRootOnly || depth === 1;
 
 			if (allowBacklinks) {
@@ -286,7 +263,6 @@ function runBFS(
 	return { startFiles: roots, others };
 }
 
-// --- Helpers ---
 
 function buildGlobalBacklinkMap(app: App): Map<string, Set<string>> {
 	const map = new Map<string, Set<string>>();
@@ -342,7 +318,6 @@ function createCandidates(
 	const mirrorDir = settings.mirrorFolderPath.trim();
 	const mirrorActive = mirrorDir.length > 0;
 
-	// Build a set of "Root Sort Keys".
 	const rootSortKeys = new Set<string>();
 	for (const r of rootFiles) {
 		rootSortKeys.add(normalizeMirrorSortKey(r.path, settings));
@@ -351,23 +326,19 @@ function createCandidates(
 	for (const f of files) {
 		const p = normalizePath(f.path);
 
-		// Calculate ID first to check if Root
 		const sortKey = normalizeMirrorSortKey(p, settings);
 		const isRoot = rootSortKeys.has(sortKey);
 
-		// Exclusions logic removed: It is now securely handled upstream by filtering functions.
 
 		let c: Candidate;
 
 		if (mirrorActive && isUnderDir(p, mirrorDir)) {
-			// Mirror file
 			c = {
 				sortKeyPath: sortKey,
 				originalPath: p,
 				sourceLabel: settings.mirrorLabel,
 			};
 		} else {
-			// Primary file
 			c = {
 				sortKeyPath: p,
 				originalPath: p,
@@ -396,20 +367,16 @@ async function processAndWrite(
 	}
 
 	candidates.sort((a, b) => {
-		// 1. Root files come first
 		const aRoot = a.isRoot ? 1 : 0;
 		const bRoot = b.isRoot ? 1 : 0;
 		if (aRoot !== bRoot) return bRoot - aRoot;
 
-		// 2. Sort by SortKey (Group Primary and Mirror)
 		const cmp = a.sortKeyPath.localeCompare(b.sortKeyPath);
 		if (cmp !== 0) return cmp;
 
-		// 3. Tie-Breaker: Primary before Mirror
 		if (a.sourceLabel === settings.primaryLabel && b.sourceLabel === settings.mirrorLabel) return -1;
 		if (b.sourceLabel === settings.primaryLabel && a.sourceLabel === settings.mirrorLabel) return 1;
 
-		// 4. Fallback
 		return a.originalPath.localeCompare(b.originalPath);
 	});
 

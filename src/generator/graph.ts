@@ -16,13 +16,11 @@ export function runBFS(
 	const processedPaths = new Set<string>();
 	const collectedFilesMap = new Map<string, TFile>();
 
-	// 1. Pre-calculate incoming links if needed
 	let globalBacklinkMap: Map<string, Set<string>> | null = null;
 	if (config.includeBacklinks) {
 		globalBacklinkMap = buildGlobalBacklinkMap(app);
 	}
 
-	// 2. Initialize Queue
 	let queue: { file: TFile; depth: number }[] = roots.map(f => ({ file: f, depth: 1 }));
 
 	roots.forEach(f => {
@@ -30,13 +28,11 @@ export function runBFS(
 		collectedFilesMap.set(f.path, f);
 	});
 
-	// 3. Process Queue
 	while (queue.length > 0) {
 		const { file: currentFile, depth } = queue.shift()!;
 
 		if (depth > config.depth) continue;
 
-		// A. Process Outgoing (Mentions)
 		if (config.includeMentions) {
 			const cache = metadataCache.getFileCache(currentFile);
 			if (cache) {
@@ -54,9 +50,7 @@ export function runBFS(
 			}
 		}
 
-		// B. Process Incoming (Backlinks)
 		if (config.includeBacklinks && globalBacklinkMap) {
-			// Check Setting: If 'backlinksOnRootOnly' is true, only allow if depth is 1
 			const allowBacklinks = !settings.backlinksOnRootOnly || depth === 1;
 
 			if (allowBacklinks) {
@@ -77,7 +71,6 @@ export function runBFS(
 		}
 	}
 
-	// 4. Separate Roots from Discovered
 	const rootPaths = new Set(roots.map(f => f.path));
 	const others = Array.from(collectedFilesMap.values()).filter(f => !rootPaths.has(f.path));
 

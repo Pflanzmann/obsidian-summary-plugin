@@ -5,7 +5,7 @@ export const DEFAULT_SETTINGS: VaultSummarySettings = {
 	outputFilePath: "Vault Summary.txt",
 	globalExcludedDirNames: ["Templates", "Meta", "Archives"],
 
-	enableMirroring: false, // Default to disabled
+	enableMirroring: false,
 	mirrorFolderPath: "PublicMirror",
 	primaryLabel: "PRIMARY",
 	mirrorLabel: "MIRROR",
@@ -13,13 +13,12 @@ export const DEFAULT_SETTINGS: VaultSummarySettings = {
 	excludedFilePaths: [],
 	excludedGlobs: [],
 
-	// New defaults
 	alwaysIncludePathsAsRoots: [],
 	alwaysIncludePathsAsLinks: [],
 
 	scanDepth: 1,
 
-	backlinksOnRootOnly: false, // Default to checking all levels
+	backlinksOnRootOnly: false,
 
 	lastRunSettings: {
 		includeMentions: true,
@@ -42,7 +41,6 @@ export class SummarySettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h2", { text: "Vault Summary — Settings" });
 
-		// --- General Settings ---
 		new Setting(containerEl)
 			.setName("Base Output Path")
 			.setDesc("The base filename. In Folder/File modes, the source name is appended.")
@@ -56,7 +54,6 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		// --- Always Include Settings ---
 		containerEl.createEl("h3", { text: "Persistent Inclusions" });
 		containerEl.createEl("p", { text: "Paths specified here will be added to every summary request (except Entire Vault, where they are included implicitly). Mirroring logic is applied to these paths.", cls: "setting-item-description"});
 
@@ -84,7 +81,6 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		// --- Graph Traversal Settings ---
 		containerEl.createEl("h3", { text: "Graph Traversal" });
 
 		new Setting(containerEl)
@@ -99,7 +95,6 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		// --- Mirroring Toggle ---
 		containerEl.createEl("h3", { text: "Mirror Mode" });
 
 		new Setting(containerEl)
@@ -111,12 +106,10 @@ export class SummarySettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.enableMirroring = value;
 						await this.plugin.saveSettings();
-						// Re-render the settings to show/hide the sub-settings
 						this.display();
 					})
 			);
 
-		// --- Conditional Mirror Settings ---
 		if (this.plugin.settings.enableMirroring) {
 			const mirrorContainer = containerEl.createEl("div", { cls: "vs-mirror-settings-container" });
 			mirrorContainer.style.borderLeft = "2px solid var(--text-muted)";
@@ -162,7 +155,6 @@ export class SummarySettingTab extends PluginSettingTab {
 				);
 		}
 
-		// --- Exclusion Settings ---
 		containerEl.createEl("h3", { text: "Exclusions" });
 
 		new Setting(containerEl)
