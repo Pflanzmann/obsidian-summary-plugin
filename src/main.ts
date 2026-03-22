@@ -1,4 +1,4 @@
-import {App, Notice, Plugin, TFile, TFolder, TAbstractFile, normalizePath} from "obsidian";
+import {Notice, Plugin, TFile, TFolder, normalizePath} from "obsidian";
 import {VaultSummarySettings, VaultSummaryHistory, SummaryPluginInterface} from "./types";
 import {DEFAULT_SETTINGS, SummarySettingTab} from "./settings";
 import {generateSummary, generateSummaryFromFiles} from "./generator";
