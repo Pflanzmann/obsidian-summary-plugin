@@ -74,7 +74,7 @@ export function isFolderExcluded(filePath: string, settings: VaultSummarySetting
 
 
 function normalizeExcludePath(p: string): string {
-	const stripped = p.trim().replace(/^\.\
+	const stripped = p.trim().replace(/^\.\//, "");
 	return normalizePath(stripped);
 }
 
