@@ -20,3 +20,5 @@ data.json
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
+combine-ts-for-llm.ps1
+combined-src-for-llm.txt
