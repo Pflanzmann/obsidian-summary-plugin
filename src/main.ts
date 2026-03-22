@@ -29,9 +29,10 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 			callback: async () => {
 				try {
 					await generateSummary(this.app, this.settings);
-				} catch (err: any) {
+				} catch (err) {
 					console.error(err);
-					new Notice(`Failed: ${err?.message ?? String(err)}`);
+					const msg = err instanceof Error ? err.message : String(err);
+					new Notice(`Failed: ${msg}`);
 				}
 			},
 		});
@@ -46,9 +47,11 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 						try {
 							const folderName = selectedFolder.path.split('/').pop() || "Folder";
 							await generateSummaryFromFiles(this.app, this.settings, files, folderName, rootFiles);
-						} catch (err: any) {
+						} catch (err) {
 							console.error(err);
-							new Notice(`Failed: ${err?.message ?? String(err)}`);
+							const msg = err instanceof Error ? err.message : String(err);
+							new Notice(`Failed: ${msg}`);
+
 						}
 					}).open();
 				}).open();
@@ -64,9 +67,10 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 						await this.addFileToHistory(file.path);
 						try {
 							await generateSummaryFromFiles(this.app, this.settings, files, file.basename, rootFiles);
-						} catch (err: any) {
+						} catch (err) {
 							console.error(err);
-							new Notice(`Failed: ${err?.message ?? String(err)}`);
+							const msg = err instanceof Error ? err.message : String(err);
+							new Notice(`Failed: ${msg}`);
 						}
 					}).open();
 				}).open();
@@ -84,9 +88,10 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 							await this.addFileToHistory(activeFile.path);
 							try {
 								await generateSummaryFromFiles(this.app, this.settings, files, activeFile.basename, rootFiles);
-							} catch (err: any) {
+							} catch (err) {
 								console.error(err);
-								new Notice(`Failed: ${err?.message ?? String(err)}`);
+								const msg = err instanceof Error ? err.message : String(err);
+								new Notice(`Failed: ${msg}`);
 							}
 						}).open();
 					}
@@ -110,9 +115,10 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 									try {
 										const sourceName = file instanceof TFile ? file.basename : file.name;
 										await generateSummaryFromFiles(this.app, this.settings, files, sourceName, rootFiles);
-									} catch (err: any) {
+									} catch (err) {
 										console.error(err);
-										new Notice(`Failed: ${err?.message ?? String(err)}`);
+										const msg = err instanceof Error ? err.message : String(err);
+										new Notice(`Failed: ${msg}`);
 									}
 								}).open();
 							});
@@ -134,9 +140,10 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 							new SummaryConfigModal(this.app, this, files, async (outFiles, config, rootFiles) => {
 								try {
 									await generateSummaryFromFiles(this.app, this.settings, outFiles, "Multiple Selection", rootFiles);
-								} catch (err: any) {
+								} catch (err) {
 									console.error(err);
-									new Notice(`Failed: ${err?.message ?? String(err)}`);
+									const msg = err instanceof Error ? err.message : String(err);
+									new Notice(`Failed: ${msg}`);
 								}
 							}).open();
 						});
