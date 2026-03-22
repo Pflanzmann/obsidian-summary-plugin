@@ -143,9 +143,8 @@ export class SummaryConfigModal extends Modal {
 				this.onSubmit(finalSelection, this.config, rootsSelection);
 			});
 
-		this.refreshFiles().then(() => {
-			this.generateBtn.buttonEl.focus();
-		});
+		this.refreshFiles()
+		this.generateBtn.buttonEl.focus();
 	}
 
 	expandAndFilterMirrors(files: TFile[]): TFile[] {
@@ -155,7 +154,7 @@ export class SummaryConfigModal extends Modal {
 		return expanded.filter(f => !this.removedPaths.has(normalizePath(f.path)));
 	}
 
-	async refreshFiles() {
+	refreshFiles() {
 		let initialRoots: TFile[] = [];
 
 		const addSourceToRoots = (src: TAbstractFile) => {
