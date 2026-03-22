@@ -20,6 +20,10 @@ export function loadPluginStyles() {
 			margin-left: 18px; 
 			border-left: 1px solid var(--background-modifier-border);
 		}
+		.vs-tree-item.vs-tree-item-root {
+			margin-left: 0;
+			border-left: none;
+		}
 		.vs-tree-row {
 			display: flex;
 			align-items: center;
@@ -156,6 +160,11 @@ export function loadPluginStyles() {
 			font-size: 0.9em;
 			padding: 10px 0;
 			text-align: center;
+		}
+		.vs-mirror-settings-container {
+			border-left: 2px solid var(--text-muted);
+			padding-left: 12px;
+			margin-left: 4px;
 		}
 	`;
 	document.head.appendChild(style);

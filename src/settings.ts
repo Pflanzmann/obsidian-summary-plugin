@@ -112,12 +112,8 @@ export class SummarySettingTab extends PluginSettingTab {
 
 		if (this.plugin.settings.enableMirroring) {
 			const mirrorContainer = containerEl.createEl("div", { cls: "vs-mirror-settings-container" });
-			mirrorContainer.style.borderLeft = "2px solid var(--text-muted)";
-			mirrorContainer.style.paddingLeft = "12px";
-			mirrorContainer.style.marginLeft = "4px";
 
-			new Setting(mirrorContainer)
-				.setName("Mirror folder path")
+			new Setting(mirrorContainer)				.setName("Mirror folder path")
 				.setDesc("The folder containing the secondary/mirror versions of notes.")
 				.addText((text) =>
 					text

@@ -519,8 +519,7 @@ export class SummaryConfigModal extends Modal {
 		for (const child of children) {
 			const itemEl = container.createEl("div", { cls: "vs-tree-item" });
 			if (node.path === "") {
-				itemEl.style.marginLeft = "0";
-				itemEl.style.borderLeft = "none";
+				itemEl.addClass("vs-tree-item-root");
 			}
 
 			const rowEl = itemEl.createEl("div", {
