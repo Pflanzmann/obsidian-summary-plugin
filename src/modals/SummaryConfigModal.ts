@@ -549,7 +549,11 @@ export class SummaryConfigModal extends Modal {
 			const iconEl = rowEl.createEl("span", { cls: "vs-icon" });
 			setIcon(iconEl, child.isFile ? "file-text" : "folder");
 
+			rowEl.createEl("span", { cls: "vs-tree-label", text: child.name });
+
 			const normChildPath = child.file ? normalizePath(child.file.path) : "";
+
+			!isRootTree && child.isFile && this.plugin.settings.alwaysIncludePathsAsLinks.some(p => normalizePath(p) === normChildPath);
 
 			const isManualLinked = !isRootTree && child.isFile && child.file && this.manuallyAddedLinkedFiles.some(f => normalizePath(f.path) === normChildPath);
 
