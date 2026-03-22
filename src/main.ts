@@ -1,10 +1,10 @@
-import { App, Notice, Plugin, TFile, TFolder, TAbstractFile, normalizePath } from "obsidian";
-import { VaultSummarySettings, VaultSummaryHistory, SummaryPluginInterface } from "./types";
-import { DEFAULT_SETTINGS, SummarySettingTab } from "./settings";
-import { generateSummary, generateSummaryFromFiles } from "./generator";
-import { loadPluginStyles } from "./styles";
-import { FileSuggestModal, FolderSuggestModal } from "./modals/SuggestModals";
-import { SummaryConfigModal } from "./modals/SummaryConfigModal";
+import {App, Notice, Plugin, TFile, TFolder, TAbstractFile, normalizePath} from "obsidian";
+import {VaultSummarySettings, VaultSummaryHistory, SummaryPluginInterface} from "./types";
+import {DEFAULT_SETTINGS, SummarySettingTab} from "./settings";
+import {generateSummary, generateSummaryFromFiles} from "./generator";
+import {loadPluginStyles} from "./styles";
+import {FileSuggestModal, FolderSuggestModal} from "./modals/SuggestModals";
+import {SummaryConfigModal} from "./modals/SummaryConfigModal";
 
 const DEFAULT_HISTORY: VaultSummaryHistory = {
 	recentFiles: [],
@@ -40,18 +40,17 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 		this.addCommand({
 			id: "generate-vault-summary-from-links",
 			name: "Generate summary for a choose folder",
-			callback: async () => {
+			callback: () => {
 				new FolderSuggestModal(this.app, this.settings, this.history, (selectedFolder) => {
-					new SummaryConfigModal(this.app, this, selectedFolder, async (files, config, rootFiles) => {
-						await this.addFolderToHistory(selectedFolder.path);
+					new SummaryConfigModal(this.app, this, selectedFolder, (files, config, rootFiles) => {
+						this.addFolderToHistory(selectedFolder.path);
 						try {
 							const folderName = selectedFolder.path.split('/').pop() || "Folder";
-							await generateSummaryFromFiles(this.app, this.settings, files, folderName, rootFiles);
+							generateSummaryFromFiles(this.app, this.settings, files, folderName, rootFiles);
 						} catch (err) {
 							console.error(err);
 							const msg = err instanceof Error ? err.message : String(err);
 							new Notice(`Failed: ${msg}`);
-
 						}
 					}).open();
 				}).open();
@@ -61,12 +60,12 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 		this.addCommand({
 			id: "generate-vault-summary-single-file",
 			name: "Generate summary for a choose file",
-			callback: async () => {
+			callback: () => {
 				new FileSuggestModal(this.app, this.settings, this.history, (file) => {
-					new SummaryConfigModal(this.app, this, file, async (files, config, rootFiles) => {
-						await this.addFileToHistory(file.path);
+					new SummaryConfigModal(this.app, this, file, (files, config, rootFiles) => {
+						this.addFileToHistory(file.path);
 						try {
-							await generateSummaryFromFiles(this.app, this.settings, files, file.basename, rootFiles);
+							generateSummaryFromFiles(this.app, this.settings, files, file.basename, rootFiles);
 						} catch (err) {
 							console.error(err);
 							const msg = err instanceof Error ? err.message : String(err);
@@ -84,10 +83,10 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 				const activeFile = this.app.workspace.getActiveFile();
 				if (activeFile instanceof TFile && activeFile.extension === "md") {
 					if (!checking) {
-						new SummaryConfigModal(this.app, this, activeFile, async (files, config, rootFiles) => {
-							await this.addFileToHistory(activeFile.path);
+						new SummaryConfigModal(this.app, this, activeFile, (files, config, rootFiles) => {
+							this.addFileToHistory(activeFile.path);
 							try {
-								await generateSummaryFromFiles(this.app, this.settings, files, activeFile.basename, rootFiles);
+								generateSummaryFromFiles(this.app, this.settings, files, activeFile.basename, rootFiles);
 							} catch (err) {
 								console.error(err);
 								const msg = err instanceof Error ? err.message : String(err);
@@ -109,12 +108,12 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 							.setTitle("Generate summary")
 							.setIcon("file-text")
 							.onClick(() => {
-								new SummaryConfigModal(this.app, this, file, async (files, config, rootFiles) => {
-									if (file instanceof TFile) await this.addFileToHistory(file.path);
-									if (file instanceof TFolder) await this.addFolderToHistory(file.path);
+								new SummaryConfigModal(this.app, this, file, (files, config, rootFiles) => {
+									if (file instanceof TFile) this.addFileToHistory(file.path);
+									if (file instanceof TFolder) this.addFolderToHistory(file.path);
 									try {
 										const sourceName = file instanceof TFile ? file.basename : file.name;
-										await generateSummaryFromFiles(this.app, this.settings, files, sourceName, rootFiles);
+										generateSummaryFromFiles(this.app, this.settings, files, sourceName, rootFiles);
 									} catch (err) {
 										console.error(err);
 										const msg = err instanceof Error ? err.message : String(err);
@@ -137,9 +136,9 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 						.setTitle("Generate summary")
 						.setIcon("file-text")
 						.onClick(() => {
-							new SummaryConfigModal(this.app, this, files, async (outFiles, config, rootFiles) => {
+							new SummaryConfigModal(this.app, this, files, (outFiles, config, rootFiles) => {
 								try {
-									await generateSummaryFromFiles(this.app, this.settings, outFiles, "Multiple Selection", rootFiles);
+									generateSummaryFromFiles(this.app, this.settings, outFiles, "Multiple selection", rootFiles);
 								} catch (err) {
 									console.error(err);
 									const msg = err instanceof Error ? err.message : String(err);
