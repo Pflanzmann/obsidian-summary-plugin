@@ -2,7 +2,6 @@ import {App, Notice, Plugin, TFile, TFolder, TAbstractFile, normalizePath} from 
 import {VaultSummarySettings, VaultSummaryHistory, SummaryPluginInterface} from "./types";
 import {DEFAULT_SETTINGS, SummarySettingTab} from "./settings";
 import {generateSummary, generateSummaryFromFiles} from "./generator";
-import {loadPluginStyles} from "./styles";
 import {FileSuggestModal, FolderSuggestModal} from "./modals/SuggestModals";
 import {SummaryConfigModal} from "./modals/SummaryConfigModal";
 
@@ -21,7 +20,6 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 		await this.loadHistory();
 
 		this.addSettingTab(new SummarySettingTab(this.app, this));
-		loadPluginStyles();
 
 		this.addCommand({
 			id: "generate-vault-summary",
