@@ -1,90 +1,87 @@
-# Obsidian Sample Plugin
+# Vault Summary for Obsidian
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+**Vault Summary** is a powerful Obsidian plugin that allows you to compile multiple Markdown files—or your entire vault—into a single, well-structured text document.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+It traverses your note graph (outgoing links and incoming backlinks), allows you to precisely select which files to include via an interactive tree view, and outputs a clean, concatenated file.
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+**Primary Use Case:** This is the perfect tool for generating context files to feed into Large Language Models (LLMs) like ChatGPT, Claude, or local models. It gathers your interconnected thoughts and packages them into a format AI can easily parse.
 
-## First time developing plugins?
+## ✨ Features
 
-Quick starting guide for new plugin devs:
+- **Flexible Starting Points:** Generate summaries starting from a single active file, a specific folder, multiple selected files, or your entire vault.
+- **Graph Traversal:** Automatically find and include related notes. Configure how deep the plugin should search (Search Depth 1-5) and whether to include Outgoing Links (Mentions) and/or Incoming Links (Backlinks).
+- **Interactive Configuration Modal:** Before generating the summary, view a clean Tree UI showing exactly which "Root Files" and "Linked Files" will be included. Check/uncheck individual files or entire folders.
+- **Manual Additions:** Forgot a file? Add specific files or folders to your generation queue directly from the modal.
+- **Smart History:** The plugin remembers your recently summarized files and folders (marked with a 🕒) for quick access.
+- **Advanced Mirror Mode:** Maintain a public/private workflow? The plugin can pair your primary notes with their "Mirror" (e.g., a public folder) equivalents, sorting them together and clearly labeling their source.
+- **Robust Exclusions:** Skip template folders, archive directories, specific files, or use Globs to keep your summaries clean of unwanted metadata.
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+## 🚀 How to Use
 
-## Releasing new releases
+### Commands
+You can access Vault Summary via the Command Palette (`Ctrl/Cmd + P`) or by right-clicking files/folders in the file explorer.
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+- **Generate summary: Active file**: Starts a summary based on the file you are currently reading.
+- **Generate summary: Choose file/folder...**: Opens a fuzzy-search modal to pick a starting point.
+- **Generate summary: Entire vault**: Compiles the whole vault (excluding your defined ignore lists).
+- **Context Menu:** Right-click any file, folder, or multiple selected items and choose **Generate summary**.
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### The Output Format
+The generated output file (default: `Vault Summary.txt`) formats your notes cleanly, ensuring boundaries between files are clear. It dynamically appends the source name (e.g., `Vault Summary - MyProject.txt`).
 
-## Adding your plugin to the community plugin list
+Notice how the plugin automatically pulls in the linked `Related Idea` file because it was referenced in the starting file:
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+`````text
+### FILE: Projects/MyProject.md
 
-## How to use
+````markdown
+# My Project
+This is the core project file. We are building the new architecture based on the concepts outlined in [[Related Idea]]. 
+````
 
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+### FILE: Concepts/Related Idea.md
 
-## Manually installing the plugin
+````markdown
+# Related Idea
+This concept explains the underlying mechanics of the architecture. 
+````
+`````
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+## 🌳 The Interactive Modal
 
-## Improve code quality with eslint
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
+When you trigger a summary (except for "Entire Vault"), an interactive modal appears:
+1. **Adjust Graph Settings:** Toggle Backlinks/Mentions and adjust the depth slider on the fly. The file list recalculates instantly.
+2. **Review Files:** Files are split into **Root Files** (your starting points) and **Linked Files** (discovered via traversal).
+3. **Refine:** Uncheck any files or folders you don't want to include.
+4. **Add More:** Use the `+` icons to manually inject extra files or folders into the compilation.
 
-## Funding URL
+## 🪞 Mirror Mode (Advanced)
 
-You can include funding URLs where people who use your plugin can financially support it.
+If you maintain a workflow where you have a "Private" note and a "Public/Published" version of the same note inside a specific folder (e.g., `PublicMirror/`), you can enable **Mirror Mode** in the settings.
 
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
+When enabled:
+- Selecting a file will automatically pull in its mirrored counterpart.
+- In the final output, the files are sorted next to each other.
+- Custom labels are injected (e.g., `> Source: PRIMARY` and `> Source: MIRROR`) so you (or an AI) can easily compare the two versions.
 
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
-```
+## ⚙️ Settings
 
-If you have multiple URLs, you can also do:
+Go to `Settings > Vault Summary` to configure the plugin:
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
-```
+- **Base Output Path:** Where the summary file should be saved.
+- **Persistent Inclusions:** Always include specific root or linked files in every generated summary (great for always including a "System Prompt" or "Vault Index" note).
+- **Graph Traversal Defaults:** Set whether backlinks are checked for the entire graph, or *only* for your starting root files.
+- **Mirror Mode:** Enable/disable and define your mirror folder path and labels.
+- **Exclusions:** Define global directories (e.g., `Templates`, `Meta`), specific file paths, or glob patterns to permanently ignore during generation.
 
-## API Documentation
+## 📦 Installation
 
-See https://docs.obsidian.md
+**Manual Installation:**
+1. Download the `main.js`, `manifest.json`, and `styles.css` (if compiled) from the latest Release.
+2. Place them inside your vault in `.obsidian/plugins/vault-summary/`.
+3. Restart Obsidian and enable the plugin in `Settings > Community Plugins`.
+
+**Using BRAT (Beta Reviewers Auto-update Tool):**
+1. Install the BRAT plugin from the Community Plugins list.
+2. Add the GitHub repository URL of this plugin to BRAT.
+3. Enable the plugin in your Obsidian settings.
