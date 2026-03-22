@@ -39,7 +39,9 @@ export class SummarySettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl("h2", { text: "Settings" });
+		new Setting(containerEl)
+			.setName("Settings")
+			.setHeading();
 
 		new Setting(containerEl)
 			.setName("Base output path")
@@ -54,8 +56,11 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Persistent inclusions" });
-		containerEl.createEl("p", { text: "Paths specified here will be added to every summary request (except entire vault, where they are included implicitly). Mirroring logic is applied to these paths.", cls: "setting-item-description"});
+		new Setting(containerEl)
+			.setName("Persistent inclusions")
+			.setDesc("Paths specified here will be added to every summary request (except entire vault, where they are included implicitly). Mirroring logic is applied to these paths.")
+			.setHeading();
+
 
 		new Setting(containerEl)
 			.setName("Always include as root files")
@@ -81,7 +86,9 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Graph traversal" });
+		new Setting(containerEl)
+			.setName("Graph traversal")
+			.setHeading();
 
 		new Setting(containerEl)
 			.setName("Limit backlinks to roots")
@@ -95,7 +102,9 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Mirror mode" });
+		new Setting(containerEl)
+			.setName("Mirror mode")
+			.setHeading();
 
 		new Setting(containerEl)
 			.setName("Enable primary & mirror logic")
@@ -151,7 +160,9 @@ export class SummarySettingTab extends PluginSettingTab {
 				);
 		}
 
-		containerEl.createEl("h3", { text: "Exclusions" });
+		new Setting(containerEl)
+			.setName("Exclusions")
+			.setHeading();
 
 		new Setting(containerEl)
 			.setName("Excluded root folders")
