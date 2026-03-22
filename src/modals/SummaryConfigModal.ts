@@ -551,8 +551,6 @@ export class SummaryConfigModal extends Modal {
 
 			const normChildPath = child.file ? normalizePath(child.file.path) : "";
 
-			!isRootTree && child.isFile && this.plugin.settings.alwaysIncludePathsAsLinks.some(p => normalizePath(p) === normChildPath);
-
 			const isManualLinked = !isRootTree && child.isFile && child.file && this.manuallyAddedLinkedFiles.some(f => normalizePath(f.path) === normChildPath);
 
 			const showTrashInRoot = isRootTree && child.isFile;

@@ -40,10 +40,6 @@ export class SummarySettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName("Settings")
-			.setHeading();
-
-		new Setting(containerEl)
 			.setName("Base output path")
 			.setDesc("The base filename. In folder/file modes, the source name is appended.")
 			.addText((text) =>
@@ -138,10 +134,10 @@ export class SummarySettingTab extends PluginSettingTab {
 				.setDesc("Label in the summary for files outside the mirror folder.")
 				.addText((text) =>
 					text
-						.setPlaceholder("primary")
+						.setPlaceholder("Primary")
 						.setValue(this.plugin.settings.primaryLabel)
 						.onChange(async (value) => {
-							this.plugin.settings.primaryLabel = value.trim() || "primary";
+							this.plugin.settings.primaryLabel = value.trim() || "Primary";
 							await this.plugin.saveSettings();
 						})
 				);
@@ -151,10 +147,10 @@ export class SummarySettingTab extends PluginSettingTab {
 				.setDesc("Label in the summary for files inside the mirror folder.")
 				.addText((text) =>
 					text
-						.setPlaceholder("mirror")
+						.setPlaceholder("Mirror")
 						.setValue(this.plugin.settings.mirrorLabel)
 						.onChange(async (value) => {
-							this.plugin.settings.mirrorLabel = value.trim() || "mirror";
+							this.plugin.settings.mirrorLabel = value.trim() || "Mirror";
 							await this.plugin.saveSettings();
 						})
 				);
