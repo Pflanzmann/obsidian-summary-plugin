@@ -74,7 +74,7 @@ export class SummaryConfigModal extends Modal {
 		contentEl.createEl("p", { text: `Source: ${name}`, cls: "setting-item-description" });
 
 		new Setting(contentEl)
-			.setName("Include Mentions (Outgoing)")
+			.setName("Include mentions")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.config.includeMentions)
@@ -85,7 +85,7 @@ export class SummaryConfigModal extends Modal {
 			);
 
 		new Setting(contentEl)
-			.setName("Include Backlinks (Incoming)")
+			.setName("Include backlinks")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.config.includeBacklinks)
@@ -96,7 +96,7 @@ export class SummaryConfigModal extends Modal {
 			);
 
 		new Setting(contentEl)
-			.setName("Search Depth")
+			.setName("Search depth")
 			.setDesc("Levels of links to traverse.")
 			.addSlider((slider) =>
 				slider
@@ -120,7 +120,7 @@ export class SummaryConfigModal extends Modal {
 			.onClick(() => this.close());
 
 		this.generateBtn = new ButtonComponent(btnDiv)
-			.setButtonText("Generate Summary")
+			.setButtonText("Generate summary")
 			.setCta()
 			.onClick(async () => {
 				this.plugin.settings.lastRunSettings = this.config;
@@ -348,15 +348,15 @@ export class SummaryConfigModal extends Modal {
 		const rootSection = this.treeContainerEl.createEl("div", { cls: "vs-tree-section" });
 
 		const headerRow = rootSection.createEl("div", { cls: "vs-tree-section-header-row" });
-		headerRow.createEl("span", { text: `Root Files`, cls: "vs-tree-section-header" });
+		headerRow.createEl("span", { text: `Root files`, cls: "vs-tree-section-header" });
 
 		const actionsDiv = headerRow.createEl("div", { cls: "vs-tree-actions" });
 
-		const addFileBtn = actionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add File" } });
+		const addFileBtn = actionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add file" } });
 		setIcon(addFileBtn, "file-plus");
 		addFileBtn.onclick = () => this.addFile();
 
-		const addFolderBtn = actionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add Folder" } });
+		const addFolderBtn = actionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add folder" } });
 		setIcon(addFolderBtn, "folder-plus");
 		addFolderBtn.onclick = () => this.addFolder();
 
@@ -384,11 +384,11 @@ export class SummaryConfigModal extends Modal {
 
 			const linkedActionsDiv = linkedHeaderRow.createEl("div", { cls: "vs-tree-actions" });
 
-			const addLinkedFileBtn = linkedActionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add File" } });
+			const addLinkedFileBtn = linkedActionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add file" } });
 			setIcon(addLinkedFileBtn, "file-plus");
 			addLinkedFileBtn.onclick = () => this.addLinkedFile();
 
-			const addLinkedFolderBtn = linkedActionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add Folder" } });
+			const addLinkedFolderBtn = linkedActionsDiv.createEl("button", { cls: "vs-icon-btn", attr: { "aria-label": "Add folder" } });
 			setIcon(addLinkedFolderBtn, "folder-plus");
 			addLinkedFolderBtn.onclick = () => this.addLinkedFolder();
 
@@ -560,7 +560,7 @@ export class SummaryConfigModal extends Modal {
 			if ((showTrashInRoot || showTrashInLink) && child.isFile && child.file) {
 				const trashBtn = rowEl.createEl("div", { cls: "vs-node-action" });
 				setIcon(trashBtn, "trash-2");
-				trashBtn.title = isRootTree ? "Remove from Root Files" : "Remove from Linked Files";
+				trashBtn.title = isRootTree ? "Remove from root files" : "Remove from linked files";
 				trashBtn.onclick = (e) => {
 					e.stopPropagation();
 					if (child.file) {

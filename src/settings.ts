@@ -2,7 +2,7 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import { VaultSummarySettings, SummaryPluginInterface } from "./types";
 
 export const DEFAULT_SETTINGS: VaultSummarySettings = {
-	outputFilePath: "Vault Summary.txt",
+	outputFilePath: "Vault summary.txt",
 	globalExcludedDirNames: ["Templates", "Meta", "Archives"],
 
 	enableMirroring: false,
@@ -39,14 +39,14 @@ export class SummarySettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl("h2", { text: "Vault Summary — Settings" });
+		containerEl.createEl("h2", { text: "Settings" });
 
 		new Setting(containerEl)
-			.setName("Base Output Path")
-			.setDesc("The base filename. In Folder/File modes, the source name is appended.")
+			.setName("Base output path")
+			.setDesc("The base filename. In folder/file modes, the source name is appended.")
 			.addText((text) =>
 				text
-					.setPlaceholder("Vault Summary.txt")
+					.setPlaceholder("Vault summary.txt")
 					.setValue(this.plugin.settings.outputFilePath)
 					.onChange(async (value) => {
 						this.plugin.settings.outputFilePath = value.trim() || DEFAULT_SETTINGS.outputFilePath;
@@ -54,12 +54,12 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Persistent Inclusions" });
-		containerEl.createEl("p", { text: "Paths specified here will be added to every summary request (except Entire Vault, where they are included implicitly). Mirroring logic is applied to these paths.", cls: "setting-item-description"});
+		containerEl.createEl("h3", { text: "Persistent inclusions" });
+		containerEl.createEl("p", { text: "Paths specified here will be added to every summary request (except entire vault, where they are included implicitly). Mirroring logic is applied to these paths.", cls: "setting-item-description"});
 
 		new Setting(containerEl)
-			.setName("Always include as Root Files")
-			.setDesc("Comma-separated exact paths. These files become BFS starting points.")
+			.setName("Always include as root files")
+			.setDesc("Comma separated exact paths. These files become starting points.")
 			.addTextArea((area) =>
 				area
 					.setValue(this.plugin.settings.alwaysIncludePathsAsRoots.join(", "))
@@ -70,8 +70,8 @@ export class SummarySettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Always include as Linked Files")
-			.setDesc("Comma-separated exact paths. These files are added but not used as BFS starting points.")
+			.setName("Always include as linked files")
+			.setDesc("Comma separated exact paths. These files are added but not used as starting points.")
 			.addTextArea((area) =>
 				area
 					.setValue(this.plugin.settings.alwaysIncludePathsAsLinks.join(", "))
@@ -81,11 +81,11 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Graph Traversal" });
+		containerEl.createEl("h3", { text: "Graph traversal" });
 
 		new Setting(containerEl)
-			.setName("Limit Backlinks to Roots")
-			.setDesc("If enabled, incoming links (backlinks) are only checked for the starting Root files. Files found deeper in the graph will not be scanned for their own backlinks.")
+			.setName("Limit backlinks to roots")
+			.setDesc("If enabled, backlinks are only checked for the starting root files. Files found deeper in the graph will not be scanned for their own backlinks.")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.backlinksOnRootOnly)
@@ -95,11 +95,11 @@ export class SummarySettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Mirror Mode" });
+		containerEl.createEl("h3", { text: "Mirror mode" });
 
 		new Setting(containerEl)
-			.setName("Enable Primary & Mirror Logic")
-			.setDesc("If enabled, the plugin will look for a 'Mirror' folder to distinguish between internal (Primary) and public (Mirror) versions of your notes.")
+			.setName("Enable primary & mirror logic")
+			.setDesc("If enabled, the plugin will look for a 'mirror' folder to distinguish between primary and mirror versions of your notes.")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.enableMirroring)
@@ -129,27 +129,27 @@ export class SummarySettingTab extends PluginSettingTab {
 				);
 
 			new Setting(mirrorContainer)
-				.setName("Primary Source Name")
-				.setDesc("Label in the summary for files OUTSIDE the mirror folder.")
+				.setName("Primary source name")
+				.setDesc("Label in the summary for files outside the mirror folder.")
 				.addText((text) =>
 					text
-						.setPlaceholder("PRIMARY")
+						.setPlaceholder("primary")
 						.setValue(this.plugin.settings.primaryLabel)
 						.onChange(async (value) => {
-							this.plugin.settings.primaryLabel = value.trim() || "PRIMARY";
+							this.plugin.settings.primaryLabel = value.trim() || "primary";
 							await this.plugin.saveSettings();
 						})
 				);
 
 			new Setting(mirrorContainer)
-				.setName("Mirror Source Name")
-				.setDesc("Label in the summary for files INSIDE the mirror folder.")
+				.setName("Mirror source name")
+				.setDesc("Label in the summary for files inside the mirror folder.")
 				.addText((text) =>
 					text
-						.setPlaceholder("MIRROR")
+						.setPlaceholder("mirror")
 						.setValue(this.plugin.settings.mirrorLabel)
 						.onChange(async (value) => {
-							this.plugin.settings.mirrorLabel = value.trim() || "MIRROR";
+							this.plugin.settings.mirrorLabel = value.trim() || "mirror";
 							await this.plugin.saveSettings();
 						})
 				);

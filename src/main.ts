@@ -25,7 +25,7 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 
 		this.addCommand({
 			id: "generate-vault-summary",
-			name: "Generate summary: Entire vault",
+			name: "Generate summary for the entire vault",
 			callback: async () => {
 				try {
 					await generateSummary(this.app, this.settings);
@@ -38,7 +38,7 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 
 		this.addCommand({
 			id: "generate-vault-summary-from-links",
-			name: "Generate summary: Choose folder...",
+			name: "Generate summary for a choose folder",
 			callback: async () => {
 				new FolderSuggestModal(this.app, this.settings, this.history, (selectedFolder) => {
 					new SummaryConfigModal(this.app, this, selectedFolder, async (files, config, rootFiles) => {
@@ -57,7 +57,7 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 
 		this.addCommand({
 			id: "generate-vault-summary-single-file",
-			name: "Generate summary: Choose file...",
+			name: "Generate summary for a choose file",
 			callback: async () => {
 				new FileSuggestModal(this.app, this.settings, this.history, (file) => {
 					new SummaryConfigModal(this.app, this, file, async (files, config, rootFiles) => {
@@ -75,7 +75,7 @@ export default class VaultSummaryPlugin extends Plugin implements SummaryPluginI
 
 		this.addCommand({
 			id: "generate-vault-summary-current-file",
-			name: "Generate summary: Active file",
+			name: "Generate summary for the active file",
 			checkCallback: (checking: boolean) => {
 				const activeFile = this.app.workspace.getActiveFile();
 				if (activeFile instanceof TFile && activeFile.extension === "md") {

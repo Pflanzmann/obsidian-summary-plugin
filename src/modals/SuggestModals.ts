@@ -16,7 +16,7 @@ export class FileSuggestModal extends FuzzySuggestModal<TFile> {
 		this.settings = settings;
 		this.history = history;
 		this.onChoose = onChoose;
-		this.setPlaceholder("Select a starting file (🕒 = Recent)...");
+		this.setPlaceholder("Select a starting file");
 	}
 
 	getItems(): TFile[] {
@@ -59,7 +59,7 @@ export class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 		this.settings = settings;
 		this.history = history;
 		this.onChoose = onChoose;
-		this.setPlaceholder("Select a folder to scan (🕒 = Recent)");
+		this.setPlaceholder("Select a starting folder");
 	}
 
 	getItems(): TFolder[] {
