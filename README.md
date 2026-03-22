@@ -27,23 +27,38 @@ You can access Vault Summary via the Command Palette (`Ctrl/Cmd + P`) or by righ
 - **Context Menu:** Right-click any file, folder, or multiple selected items and choose **Generate summary**.
 
 ### The Output Format
-The generated output file (default: `Vault Summary.txt`) formats your notes cleanly, ensuring boundaries between files are clear. It dynamically appends the source name (e.g., `Vault Summary - MyProject.txt`).
+The generated output file (default: `Vault Summary.txt`) formats your notes cleanly, ensuring boundaries between files are clear.
 
-Notice how the plugin automatically pulls in the linked `Related Idea` file because it was referenced in the starting file:
+Notice how the plugin includes the exact file path, custom source labels (if configured), and wraps the unmodified file content—including YAML frontmatter and Obsidian Wikilinks—inside a nested Markdown block. In this generic example, the first file links to the second one, prompting the plugin to automatically include both:
 
 `````text
-### FILE: Projects/MyProject.md
+### FILE: Projects/Project Alpha.md
+> Source: PRIVATE VAULT
 
 ````markdown
-# My Project
-This is the core project file. We are building the new architecture based on the concepts outlined in [[Related Idea]]. 
+---
+status: in progress
+tags: [planning, software]
+lead: "[[Alice Engineer]]"
+---
+# Project Alpha
+This document serves as the main entry point for our new software project. 
+
+We are utilizing the new database structure outlined in [[System Architecture]]. Please ensure all new modules follow these strict guidelines.
+
+## Next Steps
+- Review the API endpoints.
+- Schedule a sync with the backend team.
 ````
 
-### FILE: Concepts/Related Idea.md
+### FILE: Concepts/System Architecture.md
+> Source: PUBLIC WIKI
 
 ````markdown
-# Related Idea
-This concept explains the underlying mechanics of the architecture. 
+# System Architecture
+This document explains the core principles of our data flow and server structure.
+
+*(Note: The plugin automatically discovered and included this file because it was referenced by Project Alpha!)*
 ````
 `````
 
