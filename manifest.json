@@ -1,7 +1,7 @@
 {
 	"id": "wiki-summary-normalised",
 	"name": "Vault Graph Summary",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"minAppVersion": "1.5.0",
 	"description": "Generates a consolidated summary text file by crawling your notes. Supports outgoing links, backlinks, recursion depth, exclusion patterns, and 'Mirror' folder logic for handling Primary vs. Public note versions.",
 	"author": "Pflanzmann",
